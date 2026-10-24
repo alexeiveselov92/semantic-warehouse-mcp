@@ -5,8 +5,10 @@ the way an analyst does: knowing what the data means. You give it your semantic 
 ([Apache Ossie](https://ossie.apache.org/), formerly OSI), your metrics, your own context and skills — and
 it lets agents describe, query and compute metrics on any database, safely.
 
-> **Status: pre-alpha, being designed.** Nothing here is ready to use yet. The plan is in
-> [dev/PLAN.md](dev/PLAN.md), the design in [dev/DESIGN.md](dev/DESIGN.md).
+> **Status: pre-alpha.** It reads ClickHouse and DuckDB so far, through read-only tools — connections, tables,
+> columns, one `SELECT` at a time through the guard, and your own instructions and context documents. Try it on a made-up shop:
+> [getting started](docs/getting-started.md). The plan is in [dev/PLAN.md](dev/PLAN.md), the design in
+> [dev/DESIGN.md](dev/DESIGN.md).
 
 ## Why
 
@@ -32,10 +34,11 @@ its own shape. This server reads it in an open, vendor-neutral format and serves
   answer carries the SQL as it ran.
 - **Any MCP client**: stdio or Streamable HTTP — Claude, ChatGPT, Cursor, Codex, any client that speaks MCP.
 
-## Configuration (planned)
+## Configuration
 
-One YAML file names the connections (secrets by variable name, never written in it), the semantic models,
-the context and skills folders and the limits. A draft is in [examples/](examples/).
+One YAML file names the connections (secrets by variable name, never written in it), the tables agents may read,
+the large tables a query must bound, and the limits — later the semantic models, the context and skills folders.
+See [the configuration reference](docs/reference/configuration.md) and [the example](examples/config.example.yaml).
 
 ## Development
 
@@ -46,7 +49,8 @@ Python 3.12, [uv](https://docs.astral.sh/uv/), the official [MCP Python SDK](htt
 uv sync
 uv run pytest
 uv run ruff check . && uv run ruff format --check .
-uv run semantic-warehouse-mcp              # the server over stdio
+uv run python examples/data/make_shop.py    # the made-up shop the examples describe
+uv run semantic-warehouse-mcp --config examples/config.example.yaml   # the server over stdio
 ```
 
 ## License

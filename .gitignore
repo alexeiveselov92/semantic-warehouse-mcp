@@ -218,3 +218,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# The made-up shop built by examples/data/make_shop.py
+examples/data/*.duckdb
+examples/data/*.duckdb.wal

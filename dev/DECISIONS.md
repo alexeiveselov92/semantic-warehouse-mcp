@@ -62,3 +62,95 @@ of the data, and can carry the layer in `custom_extensions` for interchange.
 - **Apache-2.0**, like Ossie: an explicit patent grant; the license companies take in most easily.
 - **Written fresh**: the earlier platform's code belongs to the company it was written for. Its lessons are
   carried as design ([DESIGN.md](DESIGN.md)), not as code.
+
+## 2026-10-24 · DuckDB for development and tests; ClickHouse is the engine production work runs on
+
+**The author**: production work will run on ClickHouse; for development and tests the engine may not matter yet — then
+DuckDB. So DuckDB is the first adapter (in-process: the tests need no server), and the guard is tested in ClickHouse's
+dialect from the start (`PREWHERE`, `FINAL`, `SAMPLE`, `ARRAY JOIN`, `GLOBAL IN`, `SETTINGS`, `FORMAT`, its table
+functions) — no server needed for that. The ClickHouse adapter's requirements are in `dev/DESIGN.md`, "Adapters".
+
+## 2026-10-24 · The query runs as written, read twice
+
+A query that passes the guard runs as the agent wrote it (trailing semicolons dropped), not as sqlglot would regenerate
+it: a regenerated query can differ from the agent's in meaning, and a wrong number looks exactly like a right one. A
+parser differential (sqlglot reads one thing, the engine runs another) is closed by reading it twice: the engine's own
+parser must also see one `SELECT` (`engine_parse`), and the engine's own read-only means hold whatever both miss. For
+ClickHouse the second reading is `EXPLAIN AST`, which also names the tables as ClickHouse sees them.
+
+## 2026-10-24 · Every table node is a table read unless proven a CTE's name
+
+The first version asked sqlglot's scopes where tables are and trusted what they called a CTE. A refuting pass found
+`FROM (secret.t) x` read past it (sqlglot wraps a parenthesised table as a derived table), and a CTE named like a
+schema-qualified table could have shadowed it. Now every table node in the query is checked against `readable`, except
+one sqlglot resolves to a CTE **and** that is unqualified — as SQL resolves names. Unknown shapes are refused, not
+passed. sqlglot's failures while following a query's structure are refusals, never crashes.
+
+A second refuting pass (a separate reader, every DuckDB attack run through the server's own path against a real file)
+found no DuckDB bypass; it found that a deny-list of single names cannot hold a function family — ClickHouse's
+`dictGet*` and `joinGetOrNull` read a dictionary or a table by name past `joinget`. The engine's deny-list takes globs
+now; the ClickHouse adapter will check a dictionary's name against `readable` rather than deny the family outright.
+
+## 2026-10-24 · A large table's bound: from below, on the column, in the query that reads it
+
+`bound_by >= / > / = / BETWEEN / IN` against a value (no column, no subquery), a top-level `AND` of the `WHERE` /
+`PREWHERE` of the `SELECT` that reads the table, or of its own `JOIN … ON`; qualified by its alias when that `SELECT`
+reads more than one table. An upper bound alone, a bound under `OR`, a function of the column, or a bound in an outer
+query does not count. The guard checks the bound is there, not how wide it is (`>= '1970-01-01'` passes — a real agent
+noticed it on its own); a widest window per large table is a candidate for the metrics layer's populations, which carry
+"the longest window one query may scan".
+
+## 2026-10-24 · Answers are compact JSON text, numbers exact, capped with a note
+
+Tools that read a database answer JSON text (no duplicate structured copy), so the `answer_characters` cap measures
+exactly what is sent. Rows are arrays in column order; a decimal a JSON number cannot hold exactly is a string, never
+rounded; rows past the connection's limit are never read (`max_rows + 1` fetched to know there were more). Every cut —
+by rows or by the answer's size — sets `truncated`, `truncated_by` and a `note`. Refusals and errors are tool errors
+whose text says what to do.
+
+## 2026-10-24 · ClickHouse next, then the semantic layer; the site after them
+
+**The author**: production work runs on ClickHouse, and what matters is the semantics. So the ClickHouse adapter comes
+next (milestone 2), then the semantic layer with your own metadata and the dbt importer (milestone 3 — the importer
+moved up from metrics: a team whose semantics already live in a dbt project should not write them twice), then the
+docs site (milestone 4), then the other engines and the metrics layer.
+
+## 2026-10-24 · Your own metadata: YAML in `custom_extensions`, declared in a vocabulary; nothing of one catalog in code
+
+**The author** (option B of three; flexibility first — "don't hard-code our current logic"). What a team adds to its
+tables and columns — categories (tags from a closed list), a layer, links to the code that writes a table, owners,
+anything — is **its own**, and the server must hold any of it without a line of code changed.
+
+- **Where it is written**: in Ossie's own place for it, `custom_extensions` on the model, a dataset, a field, a metric
+  or a relationship, under the team's `vendor_name`. Ossie requires `data` to be a JSON **string**; we also read it
+  written as an ordinary **YAML mapping** — readable and checkable by hand. Our file differs from strict Ossie only
+  there; a strict Ossie document is exported on request, and a strict one is read as it is. (Option A — JSON strings
+  only — is unreadable by hand and unchecked; option C — a separate file keyed by `table.column` — splits one table's
+  description in two places.)
+- **A vocabulary** per `vendor_name` (optional): which keys exist, on which levels, of which type, and — for a closed
+  list such as categories — which values, each with its definition. Checked at start: an unknown key or value stops the
+  server, naming where it is. Without a vocabulary, a vendor's data passes unchecked.
+- **Served as written**, with the vocabulary's definitions beside it — an agent reads what a category means, not only
+  its name.
+- **The server knows no team's keys.** There is no `tags`, `layer`, `provenance` or `dto_link` in code. Where a team's
+  own metadata implies one of Ossie's own places (a column marked as the partition is the time column), that mapping
+  is written in the importer's configuration — the team's, in its repository — never in code.
+
+## 2026-10-24 · The team's own instructions and context, per connection and for the whole server
+
+**The author**: semantics is not enough — agents must also get the team's own kitchen, either written in the
+configuration or as a path to where the context lives. So `instructions` (text in the configuration) and `context`
+(files and folders) at both levels; instructions delivered at connect time in the server's instructions and in
+`list_connections`, documents listed and read by tools, everything as written, read anew on every call. Local paths
+now (a clone of the team's repository beside the configuration); a git source fetched by the server comes with
+deployment. Skills follow the same shape later.
+
+## 2026-10-24 · ClickHouse: GET for read-only, every overflow mode `throw`, the engine names the tables
+
+Every request is a `GET`, which ClickHouse itself runs read-only for any user. Every limit goes with `throw`, because
+a profile's `break` answers a part as if it were the whole — shown live: a sum over 8,198 of 100,006 rows, no warning.
+The result's rows use `break` with one row more than shown and the bytes limit off, so a cut is always visible. The
+engine's own reading is `EXPLAIN QUERY TREE`, whose table nodes are held to the same rules as the guard's tables — it
+sees `x IN (db.table)` as a table where sqlglot sees a column. Dictionaries are checked, not denied: the guard reads
+the dictionary's name from `dictGet('db.dict', …)` and checks it against `readable`. Tested against a real ClickHouse
+in a container (CI: a service container).

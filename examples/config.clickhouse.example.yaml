@@ -1,0 +1,16 @@
+# The made-up shop in ClickHouse (docs/reference/engines.md). Made-up names only.
+# Load it into a throwaway server:  CLICKHOUSE_USER=… CLICKHOUSE_PASSWORD=… uv run python examples/data/make_shop.py --clickhouse http://localhost:8123
+# Name the user and password in the variables below, then:  uv run semantic-warehouse-mcp --config examples/config.clickhouse.example.yaml --check
+
+connections:
+  - name: warehouse
+    engine: clickhouse
+    description: A made-up online shop in ClickHouse — customers, paid orders, and the raw events of its site.
+    url: http://localhost:8123
+    database: marts                           # where an unqualified table name resolves
+    user_env: SHOP_CLICKHOUSE_USER            # the variables' names — their values never appear here
+    password_env: SHOP_CLICKHOUSE_PASSWORD
+    readable: ["marts.*", "dictionaries.*", "raw.events"]
+    large_tables:
+      - { table: raw.events, bound_by: event_date }
+    limits: { rows: 500, seconds: 30 }

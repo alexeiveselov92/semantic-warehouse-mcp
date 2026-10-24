@@ -29,6 +29,38 @@ skills: ["skills/"]                    # folders holding a SKILL.md each
 query_sets: ["queries/*.yaml"]         # saved, parameterised SQL
 ```
 
+Built so far (milestone 1): `connections` and `limits` (`answer_characters`), checked with pydantic models; a
+connection's common keys are the server's, the rest its engine's (`EngineSettings` of its adapter), so a typo in either
+is named with the likely key. Every problem is reported at once, each naming its entry; a key twice in one mapping is
+refused (YAML would keep the last silently); a value under a key that may hold a secret is never repeated. At start
+every connection is reached (`adapter.check()`); a wrong one stops the server. The user's guide is
+`docs/reference/configuration.md`.
+
+## Adapters
+
+An engine's specifics live in its adapter (`src/semantic_warehouse_mcp/adapters/`), nowhere else. An adapter gives:
+its sqlglot dialect, its configuration keys, the default schema and its catalog, the table functions it allows and the
+functions it denies, `check()` at start (reach the database, confirm it is read-only), `engine_refusal(sql)` (the
+engine's own parse of a query, where it has one), `run(sql, max_rows, seconds)` (read at most `max_rows` rows and say
+whether there were more; stop after `seconds`), `tables()` and `columns()`.
+
+- **DuckDB** (built): the file opened read-only per query, external access off, extensions neither installed nor
+  loaded, Python replacement scans off, configuration locked; the engine's own parse is `extract_statements`; rows
+  fetched `max_rows + 1`; time by `interrupt()` from a timer.
+- **ClickHouse** (built — the engine production work runs on): HTTP, every request a `GET`, which ClickHouse runs
+  read-only whoever the user is (`readonly=2`: settings may be sent, nothing written); the user and password named by
+  `*_env`, sent in headers, never in the URL. Every overflow mode sent as `throw` with every query — a user's profile
+  with `read_overflow_mode = 'break'` answered a sum over 8,198 of 100,006 rows with no warning; through the server
+  it is refused. The result's rows are the one `break`: `max_result_rows = rows + 1` with `max_result_bytes = 0`, so a
+  cut always shows as the extra row (ClickHouse breaks after exceeding, at a block's end). `wait_end_of_query` so an
+  error arrives as an error. The engine's own reading is `EXPLAIN QUERY TREE` (the analyzer, 24.3+): it must be a
+  `QUERY` or `UNION`, and its `TABLE` nodes are the tables read — `x IN (db.table)` included — checked like the guard's.
+  `dictGet…` / `dictHas` / `dictIsIn` / `joinGet…` name a dictionary or Join table in their first argument: the guard
+  requires a string and checks it against `readable` (`table_reading_functions`). Table functions: `numbers`,
+  `generateSeries` only.
+- **DuckDB's own reading** names tables too: `json_serialize_sql` gives its parse tree, whose `BASE_TABLE` nodes are
+  the tables read (an unqualified name that is one of the query's CTEs left out).
+
 ## The semantic layer — Apache Ossie
 
 [Apache Ossie](https://ossie.apache.org/) (formerly Open Semantic Interchange, OSI; spec 0.1 in January 2026,
@@ -47,8 +79,55 @@ MySQL or DuckDB. So: an expression is written in ANSI SQL and translated to the 
 sqlglot; where that isn't enough, an engine-specific expression rides in a `custom_extensions` entry of our own
 vendor name. (An open question until the first real model is written — `DECISIONS.md` then.)
 
+**Your own metadata** (`DECISIONS.md`, "Your own metadata"). Anything a team adds — categories, a layer, links to the
+code that writes a table, owners — goes in `custom_extensions` under the team's `vendor_name`, its `data` written as a
+YAML mapping or as Ossie's JSON string. A **vocabulary** may declare a vendor's keys:
+
+```yaml
+# vocabulary/acme.yaml — the team's, in its repository
+vendor_name: acme
+unknown_keys: refuse                 # or allow: undeclared keys pass unchecked
+keys:
+  tags:
+    levels: [dataset, field]
+    type: list
+    values:                          # a closed list, each with its definition — served to agents
+      purchase: Purchases and their lifecycle.
+      timestamp: A point in time (*_at).
+  layer:
+    levels: [dataset]
+    values: { staging: Cleaned source data., mart: Business-ready tables. }
+  written_by:
+    levels: [dataset]
+    type: mapping                    # free inside: a topic, a repository, a link to the code
+    description: Where the data of this table comes from in the application's code.
+```
+
+Checked at start (an unknown key or value stops the server, naming the dataset and field); served as written, with the
+definitions of the values used. The server has no notion of any key: none is named in code.
+
 **Importers**: a dbt project's descriptions (`manifest.json`, `catalog.json` — model and column descriptions,
-`meta`) and its semantic models and metrics into Ossie; Ossie's own converters first, where they do the job.
+`meta`, tags) into Ossie, `meta` passed through as written into `custom_extensions` under a vendor name the
+configuration gives; which of its keys become Ossie's own places (a column marked as the partition → `dimension.is_time`;
+a declared grain → `primary_key`) set by the importer's configuration — the team's — not by code. Its semantic models and
+metrics through Ossie's own converters, where they do the job.
+
+## Instructions and context — the team's own knowledge beside its data
+
+Built (milestone 2, at the author's request: "semantics is good, but agents must also get our own kitchen"). Two kinds,
+at two levels — the whole server (top of the configuration) and each connection:
+
+- **`instructions`** — short rules written in the configuration. Delivered at once: appended, as written, to the
+  server's instructions an MCP client receives when it connects (framed only by "Instructions for every connection:" /
+  "Instructions for the connection `x`:"), and in `list_connections`.
+- **`context`** — documents kept where the team keeps them: files and folders, relative to the configuration
+  (`.md`, `.markdown`, `.txt`; hidden files and folders left out). Listed by `list_context` (name, title, length),
+  read by `get_context` (as written, in parts by `offset` when longer than an answer). Read from disk on every call — an
+  edit is served without a restart. A document is reached only by a name the listing gives; no path an agent writes is
+  ever opened.
+- **Later**: a `context` entry naming a git repository (URL, ref, path; a token by variable name), fetched by the server
+  — for a deployed server whose configuration repository does not hold the documents. Skills (`SKILL.md` folders) the
+  same way, with their own tools.
 
 ## Populations, filters and metric definitions — the metrics layer
 
@@ -84,7 +163,8 @@ Ossie stays the model of the data; an Ossie document can carry the layer in `cus
 
 | Tool | What |
 |---|---|
-| `list_connections` | the databases, their engine, what they hold |
+| `list_connections` | the databases, their engine, description, readable patterns, large tables and limits — from the configuration |
+| `list_tables`, `describe_table` | the readable tables and views, their columns and the database's own comments — before a semantic model exists |
 | `list_datasets`, `describe_dataset` | the semantic model's datasets — fields, keys, relationships, `ai_context`, `custom_extensions` — with the live table's columns beside |
 | `list_metrics`, `describe_metric` | metrics with their definitions |
 | `query_metric` | a metric by dimensions, filters and a time range — SQL compiled from the model, run through the guard |
@@ -96,15 +176,30 @@ Every answer carries its provenance: the connection, the SQL as it ran, the time
 
 ## The guard
 
-The database's own read-only user is the line that holds; the guard makes refusals clear and cheap:
+The database's own read-only user is the line that holds; the guard makes refusals clear and cheap
+(`src/semantic_warehouse_mcp/guard.py`; the user's guide is `docs/reference/guard.md`, every refusal with its code):
 
-- the query parsed with sqlglot **in the connection's dialect**; exactly one statement; `SELECT` / `WITH` only —
-  no DDL, DML, `SET`, `INTO`, no engine functions that read files or the network (a per-engine deny-list);
-- every table it reads is `readable`; a `large_tables` table is bounded by its column;
-- rows and time capped by the engine's own settings where it has them (and the answer says when it was cut);
-- the session read-only by the engine's own means (ClickHouse over GET with `readonly`, PostgreSQL
-  `READ ONLY` transactions, …);
-- a self-check at start: probes with known verdicts — a dialect the parser misreads is refused, not trusted.
+- the query parsed with sqlglot **in the connection's dialect**; exactly one statement; a `SELECT` (with `WITH`, set
+  operations) at the root; nothing anywhere inside that writes, locks or runs a command (DML in a CTE, `INTO`,
+  `FOR UPDATE`); no `SETTINGS` / `FORMAT` of its own; no denied function (the engine's deny-list takes globs, so a
+  family — ClickHouse's `dictGet*`, `joinGet*` — is denied whole); a table function only from the engine's allow-list;
+- **every table node is a table read** — checked against `readable` wherever sqlglot placed it — unless it is proven a
+  CTE's name (sqlglot resolves it to a CTE and it is unqualified). Safe by default: a table in parentheses
+  (`FROM (secret.t) x`), which sqlglot wraps as a derived table, was read past an earlier version;
+- a `large_tables` table is bounded **from below, on the column itself, against a value** (no column, no subquery), as a
+  top-level `AND` (or `NOT (col < …)`) of the `WHERE` / `PREWHERE` of the query that reads it or of its own
+  `JOIN … ON`; qualified by the
+  alias it is selected under when that query reads more than one table. The guard checks the bound is there, not how
+  wide it is;
+- sqlglot's own failures while following a query's structure are refusals (`unsupported`), never crashes;
+- **the query runs as written** (trailing semicolons dropped), not as sqlglot would regenerate it — a regenerated query
+  could differ from the agent's in meaning; instead it is **read twice**: the engine's own parser must also see one
+  `SELECT` (`engine_parse`), and the tables it names are held to `readable` and the large-table bound
+  (`check_engine_tables`) — a large table only the engine saw has a bound the guard could not check, so it is refused;
+- rows and time capped (the adapter's means; the answer says when it was cut, and why);
+- the session read-only by the engine's own means (DuckDB: read-only file, external access off; ClickHouse: `readonly`;
+  PostgreSQL: `READ ONLY` transactions; …);
+- to come: a self-check at start — probes with known verdicts; a dialect the parser misreads is refused, not trusted.
 
 ## Saved query sets ("dashboards")
 

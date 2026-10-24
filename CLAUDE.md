@@ -62,8 +62,8 @@ estimates — sessions. Every session ends with something visible.
 
 - **The site** is built from `docs/` with Astro + Starlight in `website/` — the pattern of the author's detectkit
   (`../detectkit/website` when the author's repositories sit side by side: its `sync-docs` script, its Dockerfile, its
-  `website.yml` workflow). It comes early (`dev/PLAN.md`, milestone 2), so the guide is read on the web from the first
-  tools on.
+  `website.yml` workflow). It comes after ClickHouse and the semantic layer (`dev/PLAN.md`, milestone 4), before the other
+  engines and metrics.
 - **Hosting is the author's pipelab** (`../pipelab` beside it — private, with its own `CLAUDE.md`): a Docker Compose
   service behind Traefik per site and per server instance, secrets prefixed in GitHub, a `deploy-<name>.yml` that
   redeploys on this project's `repository_dispatch`. A change there follows pipelab's own rules — read its `CLAUDE.md`
@@ -108,7 +108,8 @@ never merge peacefully).
 | `uv sync` | the environment (Python 3.12, from `.python-version`) |
 | `uv run pytest` | the tests |
 | `uv run ruff check . && uv run ruff format --check .` | lint and format |
-| `uv run semantic-warehouse-mcp` | the server over stdio |
+| `uv run python examples/data/make_shop.py` | the made-up shop the examples and the demo use |
+| `uv run semantic-warehouse-mcp --config examples/config.example.yaml` | the server over stdio (`--check` to check and exit) |
 
 ## Shell
 

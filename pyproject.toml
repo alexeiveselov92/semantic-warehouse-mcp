@@ -13,7 +13,13 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
   "Topic :: Database",
 ]
-dependencies = ["mcp>=2.3,<3"]
+dependencies = [
+    "duckdb>=1.3",
+    "httpx>=0.28",
+    "mcp>=2.3,<3",
+    "pyyaml>=6",
+    "sqlglot>=27",
+]
 
 [project.urls]
 Repository = "https://github.com/alexeiveselov92/semantic-warehouse-mcp"

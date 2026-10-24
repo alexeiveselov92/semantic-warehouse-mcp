@@ -13,6 +13,19 @@ jobs:
     name: lint and tests
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    services:
+      clickhouse:  # a throwaway server for tests/test_clickhouse.py
+        image: clickhouse/clickhouse-server:25.8
+        env:
+          CLICKHOUSE_USER: admin
+          CLICKHOUSE_PASSWORD: admin
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+        ports: ["8123:8123"]
+        options: >-
+          --health-cmd "wget -qO- http://127.0.0.1:8123/ping || exit 1"
+          --health-interval 2s --health-timeout 2s --health-retries 30
+    env:
+      SWM_TEST_CLICKHOUSE_URL: http://localhost:8123
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.2.0

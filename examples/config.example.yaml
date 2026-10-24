@@ -1,28 +1,28 @@
-# A DRAFT of the configuration (dev/DESIGN.md) — not read by the server yet. A made-up shop; made-up names only.
-# Secrets are named by the environment variable that holds them, never written here.
+# The configuration of a made-up shop (docs/reference/configuration.md). Made-up names only.
+# Build its database first:  uv run python examples/data/make_shop.py
+# Then check it:            uv run semantic-warehouse-mcp --config examples/config.example.yaml --check
+
+instructions: |                              # the team's own rules, for every connection — served as written
+  Dates are UTC. Never add amounts of different currencies: group by currency.
 
 connections:
   - name: shop
-    engine: clickhouse
-    url: https://clickhouse.example.com:8443
-    user_env: SHOP_DB_USER                # a read-only user
-    password_env: SHOP_DB_PASSWORD
-    readable: ["marts.*", "dictionaries.*"]
+    engine: duckdb
+    description: A made-up online shop — customers, paid orders, and the raw events of its site.
+    path: data/shop.duckdb                    # relative to this file
+    readable: ["marts.*", "dictionaries.*", "raw.events"]
     large_tables:
-      - { table: "raw.events", bound_by: event_date }
+      - { table: raw.events, bound_by: event_date }
     limits: { rows: 500, seconds: 30 }
-
-  - name: billing
-    engine: postgres
-    url: postgresql://db.example.com:5432/billing
-    user_env: BILLING_DB_USER
-    password_env: BILLING_DB_PASSWORD
-    readable: ["public.invoices", "public.plans"]
-
-semantic_models: ["semantic/*.yaml"]      # Apache Ossie documents
-context: ["context/"]                     # documents an agent reads with the data
-skills: ["skills/"]                       # folders holding a SKILL.md each
-query_sets: ["queries/*.yaml"]            # saved, parameterised SQL
+    instructions: |                           # for this connection only
+      Revenue is net of refunds: amount - refunded_amount.
+    context: [context/]                       # documents about this database, read by agents when they need them
 
 limits:
-  answer_characters: 40000                # clients cut long answers; a cut answer says so
+  answer_characters: 40000                    # clients cut long answers; a cut answer says so
+
+# ClickHouse: see config.clickhouse.example.yaml. Planned, each with its milestone (dev/PLAN.md) — not read yet:
+#
+# semantic_models: ["semantic/*.yaml"]        # Apache Ossie documents
+# skills: ["skills/"]                         # folders holding a SKILL.md each
+# query_sets: ["queries/*.yaml"]              # saved, parameterised SQL

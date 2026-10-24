@@ -48,6 +48,29 @@ for agents, verified against the company's dashboard. What it has that a semanti
 Ossie 0.2 has none of populations, filter bindings, roll-up rules or scenarios — so the metrics layer is ours
 (`DESIGN.md`, "Populations, filters and metric definitions").
 
+## What a production dbt catalog holds about tables and columns
+
+Studied 2026-10-24: the catalog of a large production dbt project (several hundred models, ClickHouse) whose
+semantics agents read today (the company and its data are not named here; only the shapes). What our own-metadata
+design must hold without code of its own:
+
+- **Long prose descriptions** at table and column level: the grain ("one row per … event, grain: event_id"), units,
+  the values an enum takes, the source payload path a column comes from, warnings ("never use it as the reporting
+  clock"), contract banners. Served as written — no structure is imposed on prose.
+- **Categories as tags from a closed vocabulary**, on tables and on columns: some sixty domain tags (business areas)
+  and some sixteen structural ones (identifier, foreign key, partition key, timestamp, status, flag, enum, financial…),
+  each defined in one line in a rules document; a lint refuses an unknown tag. Agents saw the tag names but not their
+  definitions — a vocabulary must carry the definitions to the agent.
+- **A layer** per model (staging, intermediate, core, dimension, …).
+- **Provenance**: per raw source, the event topic, the service's repository, a link to the DTO and to the API schema,
+  sometimes a comment; per model, the same lists propagated down the lineage by a script (generated, never hand-written).
+  Nested and list-valued — own metadata must allow mappings and lists, not only strings.
+- **The time / partition column** marked only by a structural tag; partition and order keys live in the model's SQL,
+  not its YAML — an importer must be told (by configuration) that this tag means "the time column".
+- **What is not there**: owners, PII flags, freshness, primary keys as structure — so none of them may be assumed.
+- **How agents got it**: two published catalog tables (models, columns with their tags and provenance) read with SQL
+  recipes from a context document. A semantic server replaces the recipes with tools.
+
 ## Database MCP servers today
 
 - **[MCP Toolbox for Databases](https://mcpservers.org/servers/googleapis/genai-toolbox)** (Google; repository
