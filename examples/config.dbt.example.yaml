@@ -1,0 +1,17 @@
+# The made-up shop served with the semantic model its dbt project describes (docs/reference/dbt-importer.md).
+# Made-up names only. Build the database, import the model, check:
+#   uv run python examples/data/make_shop.py
+#   uv run semantic-warehouse-mcp import-dbt examples/dbt/import.yaml
+#   uv run semantic-warehouse-mcp --config examples/config.dbt.example.yaml --check
+
+vocabularies: [vocabulary/acme.yaml]          # the dbt project's meta is checked against it
+
+connections:
+  - name: shop
+    engine: duckdb
+    description: A made-up online shop — customers, paid orders, and the raw events of its site.
+    path: data/shop.duckdb
+    readable: ["marts.*", "dictionaries.*", "raw.events"]
+    large_tables:
+      - { table: raw.events, bound_by: event_date }
+    semantic_models: [dbt/shop-dbt.yaml]      # written by the importer, never by hand

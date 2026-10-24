@@ -140,11 +140,42 @@ definitions of the values used. The server has no notion of any key: none is nam
   by removing protections: the cut of long values looped forever on an answer of many short values (it now knows
   beforehand whether cutting can fit the answer, and every step shortens it).
 
-**Importers**: a dbt project's descriptions (`manifest.json`, `catalog.json` — model and column descriptions,
-`meta`, tags) into Ossie, `meta` passed through as written into `custom_extensions` under a vendor name the
-configuration gives; which of its keys become Ossie's own places (a column marked as the partition → `dimension.is_time`;
-a declared grain → `primary_key`) set by the importer's configuration — the team's — not by code. Its semantic models and
-metrics through Ossie's own converters, where they do the job.
+**Importers**: a dbt project's descriptions (`manifest.json` — model and column descriptions, `meta`, tags) into Ossie,
+`meta` passed through as written into `custom_extensions` under a vendor name the configuration gives; which of its keys
+become Ossie's own places (a column marked as the time → `dimension.is_time`; a declared grain → `primary_key`) set by
+the importer's configuration — the team's — not by code. Its semantic models and metrics through Ossie's own
+converters, where they do the job.
+
+Built (milestone 3, second part; `importers/dbt.py`, `docs/reference/dbt-importer.md`):
+
+- **A file, not a live read.** `import-dbt` writes an Ossie document; the server serves it like any model. Before it
+  is written it is read back with the server's own reader and must equal what was built, value and type
+  (`_difference` names the first place otherwise), then pass `semantic.check`. `--check` compares bytes, for CI.
+- **What is dbt's own, read by code**: `schema` + `alias`/`identifier` → `source` (the catalog left out; a table of
+  another database than the project's models' is left out and counted, since a connection reads its own); `name`,
+  `<source>__<table>` for a source table, `_v<n>` for a version; descriptions as written; the documented columns as
+  fields (names SQL cannot read bare double-quoted, names with a backslash or a control character refused); dbt's
+  inferred `primary_key`, `event_time`, `granularity`; `relationships` tests (child from `attached_node` or the test's
+  `model` argument, parent the other node it depends on), one Ossie relationship per pair of columns; dbt's quotes
+  around a column it quotes removed in keys and tests. `meta` and dbt's `tags` read whole — the only dbt field named in
+  code, `MANIFEST_TAGS`, is exempted by name in the no-team-key test.
+- **What is the team's, configured**: `tables`, `resources`, `vendor_name`, `dbt_tags`, `places` (`time_column` marks
+  by a meta key's value or a dbt tag; `primary_key` by a meta key naming columns).
+- **Shape first**: the parts of the manifest read are checked against lax pydantic shapes before anything is built, so
+  an odd manifest is named, never a traceback; `meta` is walked without recursion (NaN, infinity, lone surrogates,
+  nesting past 64 levels refused where they are); any error of the importer's own exits 2, never 1.
+- **Writing**: multi-line text as a block, text holding one of YAML's own line breaks (`\r`, NEL, U+2028/9) double
+  quoted, short plain lists and mappings on one line, no anchors.
+- **Checked on a real catalog** (a scratch copy of a large production dbt project, parsed with its own dbt version,
+  nothing committed): 715 datasets, 8,092 fields, 1,766 time columns in 10 s; the server checked them all against a
+  vocabulary built from the team's own tag rules in 6 s, and named the one misspelled tag planted, with the likely one.
+- **Refuted by a second reader** (closed, each with a test): quoted columns named with their quotes in keys and
+  relationships; a source of another database bound to the connection's table of the same name; two tests from one
+  column collapsing into one relationship, which one depending on node order; a lone surrogate passing every check,
+  then breaking every answer (now refused by `files.read_yaml`, `semantic.check` and the importer; an escaped surrogate
+  pair read as its character); tracebacks on odd manifests, paths and outputs; secrets echoed in problems (a mapping
+  holding a secret-like key never repeated; a URL's password redacted up to the last `@`); NaN and NEL giving "please
+  report it"; `--strict` writing NaN; JSON-string numbers retyped (`1.0` served as `1`); backslashes and `$` in names.
 
 ## Instructions and context — the team's own knowledge beside its data
 

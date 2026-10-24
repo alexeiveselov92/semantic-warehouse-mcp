@@ -71,7 +71,8 @@ metrics:
 
 The whole example, with a vocabulary, is in [`examples/semantic/shop.yaml`](../../examples/semantic/shop.yaml) and
 [`examples/vocabulary/acme.yaml`](../../examples/vocabulary/acme.yaml). Ossie's own
-[specification](https://github.com/apache/ossie/blob/main/core-spec/spec.md) says what every key means.
+[specification](https://github.com/apache/ossie/blob/main/core-spec/spec.md) says what every key means. Tables already
+described in a dbt project are written as such a document by [the dbt importer](dbt-importer.md).
 
 ### Versions
 
@@ -97,9 +98,10 @@ custom_extensions:
     data: { tags: [sales], layer: mart }           # a YAML mapping: read as the JSON string it stands for
 ```
 
-Both are served the same way, as data — numbers in a JSON string exact, as every answer keeps them (a decimal a JSON
-number cannot hold comes as a string). A string that is not JSON is served as the string — unless its vendor has a
-vocabulary, which cannot check it, and the server refuses to start.
+Both are served the same way, as data — numbers in a JSON string as written (`1.0` stays `1.0`), exact as every answer
+keeps them (a number no JSON number holds exactly comes as its text). A string that is not JSON is served as the
+string — unless its vendor has a vocabulary, which cannot check it, and the server refuses to start. Text that is not
+Unicode (a lone surrogate, `\ud800`) in either is refused, naming where.
 
 ## The checks at start
 

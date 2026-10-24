@@ -195,3 +195,16 @@ Which tables, under which `vendor_name` `meta` and tags go, and which of a team'
 tag meaning the time column) are the importer's configuration — the team's; the code reads only what is dbt's own
 (descriptions, `constraints`, `relationships` tests). Metrics defined in MetricFlow are not imported a second way:
 Ossie's converter (`ossie-dbt msi-to-ossie`, apache/ossie-converters) does it, and the guide points to it.
+
+## 2026-10-24 · What the importer names, leaves out and refuses
+
+Within the author's decision above (the agent's, from a real catalog and a second reader). Dataset names are dbt's:
+a model's `name` (`_v<n>` for a version), a source table's `<source>__<table>` — unique, stable, and never read as
+`dataset.field`. A source is `schema.table`, the catalog left out; a table of another database than the one the
+project's models are built in is **left out and counted**, never written as two parts that would bind to the
+connection's own table of that name. A relationship is one per pair of columns (`<from>__<column>__<to>`, the target
+column added when it differs), whatever order dbt wrote the tests in. **Refused, naming where**: a manifest not shaped
+as dbt writes it; a name holding a backslash or a control character (each engine reads them its own way); a value no
+Ossie document holds (not finite, not Unicode, nested past 64 levels). A lone surrogate is refused by every reader of
+the server, an escaped surrogate pair read as its character — it passed every check before and broke every answer.
+Any error of the importer's own exits 2, so `--check`'s 1 always means "not current".

@@ -61,3 +61,30 @@ def test_no_problem_repeats_a_password_written_in_a_url(tmp_path):
     assert "hunter2" not in str(error.value)
     assert error.value.problems == ["not valid YAML: the key 'url' appears twice in one mapping (line 5, column 5)"]
     assert files.redact("see https://bot:hunter2@ch.example.com/x") == "see https://…@ch.example.com/x"
+
+
+@pytest.mark.parametrize("password", ["hun@ter2", "hun/ter2", "h@n/t:er2"])
+def test_a_password_holding_at_or_slash_is_left_out_whole(password):
+    assert files.redact(f"see https://bot:{password}@ch.example.com/x") == "see https://…@ch.example.com/x"
+
+
+def test_a_mapping_holding_a_secret_is_never_repeated(tmp_path):
+    (tmp_path / "config.yaml").write_text(
+        "connections:\n  - name: shop\n    engine: duckdb\n    path: x.duckdb\n    readable: ['marts.*']\n"
+        "    description: {token: hunter2}\ninstructions: [{nested: {password: hunter2}}]\ncontext: []\n"
+    )
+    with pytest.raises(ConfigError) as error:
+        load(tmp_path / "config.yaml")
+    assert "hunter2" not in str(error.value)
+    assert 'connections[0] "shop" → description: input should be a valid string (got a mapping)' in error.value.problems
+    (tmp_path / "config.yaml").write_text("connections: []\n")
+    with pytest.raises(ConfigError, match=r"\(got \[\]\)"):  # nothing in it can be a secret: shown as it is
+        load(tmp_path / "config.yaml")
+
+
+@pytest.mark.parametrize("text", ['a: "x\\ud800y"\n', 'a: {"\\udfff": 1}\n', '["\\ud83d"]'])
+def test_text_that_is_not_unicode_is_refused(tmp_path, text):
+    """A lone surrogate, escaped, reads as text no answer can carry: refused, not served to break the server."""
+    with pytest.raises(files.FileProblem, match=r"text that is not Unicode — a lone surrogate, \\ud"):
+        read(tmp_path, text)
+    assert read(tmp_path, 'a: "\\ud83d\\ude00"\n') == {"a": "😀"}  # a pair is a character

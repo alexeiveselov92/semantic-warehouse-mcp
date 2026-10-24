@@ -42,13 +42,17 @@ The engine production work runs on (the author, 2026-10-24) — moved up from "t
 - [x] Apache Ossie documents loaded and checked against the Ossie schema (the 0.2 shape, 0.1.1 read too), each bound
       to its connection; `list_datasets`, `describe_dataset`, `list_metrics`, `describe_metric` — descriptions,
       `ai_context` and your own metadata served as written, the live table's columns beside. ✅ 2026-10-24
-- [ ] Your own metadata (`dev/DECISIONS.md`, "Your own metadata"): `custom_extensions` written as YAML or as Ossie's JSON
+- [x] Your own metadata (`dev/DECISIONS.md`, "Your own metadata"): `custom_extensions` written as YAML or as Ossie's JSON
       string; a vocabulary per vendor declaring keys, levels, types and closed value lists with definitions — checked
-      at start, served with the definitions; a strict Ossie export. Nothing of any one catalog in code. All but the
-      strict export ✅ 2026-10-24 — a large dbt catalog's shapes fit with no team key in code (a test holds it).
-- [ ] The dbt importer: a dbt project's descriptions, `meta` and tags into Ossie, `meta` passed through as written;
+      at start, served with the definitions; a strict Ossie export. Nothing of any one catalog in code. ✅ 2026-10-24 —
+      a large dbt catalog's shapes fit with no team key in code (a test holds it); the strict export is the importer's
+      `--strict`.
+- [x] The dbt importer: a dbt project's descriptions, `meta` and tags into Ossie, `meta` passed through as written;
       which of its keys become Ossie's own places (a time column, a primary key) set in the importer's configuration,
-      not in code.
+      not in code. ✅ 2026-10-24 — run on a large real catalog (in a scratch copy): every table and column, checked
+      against the team's own tag rules.
+- [ ] ClickHouse users with `readonly=1` (found on a real installation, 2026-10-24): such a user may not change a
+      limit, so the adapter's per-query limits are refused — decide and build (`dev/DECISIONS.md`).
 - [ ] Skills folders (`list_skills`, `get_skill`); context and skills read straight from a git repository.
 - [ ] The dialect question settled (ANSI SQL translated by sqlglot, engine variants in `custom_extensions`) and
       written in `DECISIONS.md`.

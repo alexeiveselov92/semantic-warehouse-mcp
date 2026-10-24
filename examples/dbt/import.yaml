@@ -1,0 +1,19 @@
+# The dbt importer's configuration for the made-up shop (docs/reference/dbt-importer.md). Made-up names only.
+#   uv run semantic-warehouse-mcp import-dbt examples/dbt/import.yaml
+# writes shop-dbt.yaml beside it: the Ossie model examples/config.dbt.example.yaml serves.
+
+manifest: manifest.json                       # a team's: its dbt project's target/manifest.json (dbt parse)
+output: shop-dbt.yaml                         # the Ossie document written, relative to this file
+
+model:                                        # the Ossie model it writes
+  name: shop_dbt
+  description: The made-up shop's tables, as its dbt project describes them.
+  ai_context:
+    instructions: Revenue is net of refunds. Never add amounts of different currencies — group by currency.
+
+tables: ["marts.*", "raw.events", "dictionaries.*"]   # which tables, as the database names them (schema.table)
+vendor_name: acme                             # each table's and column's meta goes under it, as written —
+                                              # checked against ../vocabulary/acme.yaml when the server starts
+places:                                       # which of the team's keys stand for Ossie's own places
+  time_column:
+    - { meta_key: tags, value: timestamp }    # a column whose meta `tags` holds `timestamp` is a time column

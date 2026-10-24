@@ -1,0 +1,181 @@
+# Written by semantic-warehouse-mcp import-dbt from manifest.json (dbt 1.10.15).
+# Edit the dbt project or the importer's configuration and import again: an edit here is overwritten.
+version: 0.2.0.dev0
+name: shop_dbt
+description: The made-up shop's tables, as its dbt project describes them.
+ai_context:
+  instructions: Revenue is net of refunds. Never add amounts of different currencies — group by currency.
+datasets:
+  - name: customers
+    source: marts.customers
+    primary_key: [customer_id]
+    description: One row per customer, with the country they signed up from.
+    fields:
+      - name: customer_id
+        expression:
+          dialects:
+            - {dialect: ANSI_SQL, expression: customer_id}
+        description: The customer.
+        custom_extensions:
+          - vendor_name: acme
+            data:
+              tags: [identifier]
+      - name: country
+        expression:
+          dialects:
+            - {dialect: ANSI_SQL, expression: country}
+        description: The country the customer signed up from.
+      - name: signed_up_on
+        expression:
+          dialects:
+            - {dialect: ANSI_SQL, expression: signed_up_on}
+        dimension: {is_time: true}
+        description: The day the customer signed up, UTC.
+        custom_extensions:
+          - vendor_name: acme
+            data:
+              tags: [timestamp]
+    custom_extensions:
+      - vendor_name: acme
+        data:
+          layer: mart
+          tags: [customers]
+  - name: dictionaries__countries
+    source: dictionaries.countries
+    description: Countries the shop sells to, with the currency each pays in.
+    fields:
+      - name: country
+        expression:
+          dialects:
+            - {dialect: ANSI_SQL, expression: country}
+        description: The country's ISO 3166 code.
+      - name: name
+        expression:
+          dialects:
+            - {dialect: ANSI_SQL, expression: name}
+        description: The country's name, in English.
+      - name: currency
+        expression:
+          dialects:
+            - {dialect: ANSI_SQL, expression: currency}
+        description: The currency its customers pay in.
+    custom_extensions:
+      - vendor_name: acme
+        data:
+          layer: mart
+          tags: [customers]
+  - name: orders
+    source: marts.orders
+    primary_key: [order_id]
+    description: |-
+      One row per paid order; test orders are removed.
+      amount is what the customer paid before refunds, refunded_amount what was refunded: revenue is
+      amount - refunded_amount, in the order's currency. Never add amounts of different currencies.
+    fields:
+      - name: order_id
+        expression:
+          dialects:
+            - {dialect: ANSI_SQL, expression: order_id}
+        description: The order.
+        custom_extensions:
+          - vendor_name: acme
+            data:
+              tags: [identifier]
+      - name: order_date
+        expression:
+          dialects:
+            - {dialect: ANSI_SQL, expression: order_date}
+        dimension: {is_time: true}
+        description: The day the order was paid, UTC.
+      - name: customer_id
+        expression:
+          dialects:
+            - {dialect: ANSI_SQL, expression: customer_id}
+        description: Who paid.
+      - name: currency
+        expression:
+          dialects:
+            - {dialect: ANSI_SQL, expression: currency}
+        description: The currency the order was paid in.
+      - name: amount
+        expression:
+          dialects:
+            - {dialect: ANSI_SQL, expression: amount}
+        description: What the customer paid, before refunds, in the order's currency.
+        custom_extensions:
+          - vendor_name: acme
+            data:
+              tags: [money]
+      - name: refunded_amount
+        expression:
+          dialects:
+            - {dialect: ANSI_SQL, expression: refunded_amount}
+        description: What was refunded, in the order's currency; 0 when nothing was.
+        custom_extensions:
+          - vendor_name: acme
+            data:
+              tags: [money]
+    custom_extensions:
+      - vendor_name: acme
+        data:
+          layer: mart
+          tags: [sales]
+          owner: billing team
+  - name: raw__events
+    source: raw.events
+    description: |-
+      Every event the shop's site sends, as sent — one row per event.
+      Large: a query must bound event_date.
+    fields:
+      - name: event_date
+        expression:
+          dialects:
+            - {dialect: ANSI_SQL, expression: event_date}
+        dimension: {is_time: true}
+        description: The day of the event, UTC — the table's partition.
+        custom_extensions:
+          - vendor_name: acme
+            data:
+              tags: [timestamp]
+      - name: event_time
+        expression:
+          dialects:
+            - {dialect: ANSI_SQL, expression: event_time}
+        description: When the event happened, UTC.
+      - name: event_name
+        expression:
+          dialects:
+            - {dialect: ANSI_SQL, expression: event_name}
+        description: 'What happened: page_view, cart_abandoned, order_paid.'
+      - name: customer_id
+        expression:
+          dialects:
+            - {dialect: ANSI_SQL, expression: customer_id}
+        description: Who it happened to.
+        custom_extensions:
+          - vendor_name: acme
+            data:
+              tags: [identifier]
+      - name: order_id
+        expression:
+          dialects:
+            - {dialect: ANSI_SQL, expression: order_id}
+        description: The order, for an order's events; empty otherwise.
+    custom_extensions:
+      - vendor_name: acme
+        data:
+          layer: raw
+          tags: [site]
+          written_by:
+            - {topic: shop.site_events, repository: 'https://github.com/acme/shop-site'}
+relationships:
+  - name: customers__country__dictionaries__countries
+    from: customers
+    to: dictionaries__countries
+    from_columns: [country]
+    to_columns: [country]
+  - name: orders__customer_id__customers
+    from: orders
+    to: customers
+    from_columns: [customer_id]
+    to_columns: [customer_id]

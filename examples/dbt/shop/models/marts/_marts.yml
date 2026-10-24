@@ -1,0 +1,65 @@
+version: 2
+
+models:
+  - name: orders
+    description: |-
+      One row per paid order; test orders are removed.
+      amount is what the customer paid before refunds, refunded_amount what was refunded: revenue is
+      amount - refunded_amount, in the order's currency. Never add amounts of different currencies.
+    config:
+      event_time: order_date
+      tags: [daily]
+      meta:
+        layer: mart
+        tags: [sales]
+        owner: billing team
+    columns:
+      - name: order_id
+        description: The order.
+        config:
+          meta: { tags: [identifier] }
+        data_tests: [unique, not_null]
+      - name: order_date
+        description: The day the order was paid, UTC.
+      - name: customer_id
+        description: Who paid.
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('customers')
+                field: customer_id
+      - name: currency
+        description: The currency the order was paid in.
+      - name: amount
+        description: What the customer paid, before refunds, in the order's currency.
+        config:
+          meta: { tags: [money] }
+      - name: refunded_amount
+        description: What was refunded, in the order's currency; 0 when nothing was.
+        config:
+          meta: { tags: [money] }
+
+  - name: customers
+    description: One row per customer, with the country they signed up from.
+    config:
+      tags: [daily]
+      meta:
+        layer: mart
+        tags: [customers]
+    columns:
+      - name: customer_id
+        description: The customer.
+        config:
+          meta: { tags: [identifier] }
+        data_tests: [unique, not_null]
+      - name: country
+        description: The country the customer signed up from.
+        data_tests:
+          - relationships:
+              arguments:
+                to: source('dictionaries', 'countries')
+                field: country
+      - name: signed_up_on
+        description: The day the customer signed up, UTC.
+        config:
+          meta: { tags: [timestamp] }

@@ -36,12 +36,15 @@ semantic-warehouse-mcp: the configuration config.yaml has 2 problems:
 
 It refuses unknown keys (with the likely one, for a typo), a key written twice in one mapping, values of the wrong
 type, and a connection it cannot reach. A value that may be a secret written by mistake (under a key ending in `_env`,
-a URL, or a key naming a password, secret or token) is never repeated in an error, nor is a password written inside a
-URL anywhere (`https://…@host`); an error in the YAML itself names its line and column, never the line.
+a URL, or a key naming a password, secret or token — or a mapping holding such a key) is never repeated in an error,
+nor is a password written inside a URL anywhere (`https://…@host`); an error in the YAML itself names its line and
+column, never the line.
 
 Every file the server reads — this one, [semantic models and vocabularies](semantic-models.md) — is read as written:
 only `true` and `false` are booleans (`no`, `on`, `yes` stay text, as in YAML 1.2), and a date stays the text written
-(`2026-03-01`). A file must be UTF-8; YAML aliases may not expand it past a million values.
+(`2026-03-01`). A file must be UTF-8; YAML aliases may not expand it past a million values. A character escaped as a
+surrogate pair (`"😀"`, as JSON writes it) reads as that one character; a lone surrogate is not text and is
+refused.
 
 `semantic-warehouse-mcp --config <file> --check` runs the check, reaches every database, and exits — `0` when the
 configuration is fine, `2` with its problems.

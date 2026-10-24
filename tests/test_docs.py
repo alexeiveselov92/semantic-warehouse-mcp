@@ -1,6 +1,7 @@
 """The guide names everything a user meets: a tool, a refusal, a configuration key, a vocabulary key, an Ossie version
 or an engine without its entry in docs/ fails here — and so does a page the guide's contents do not list."""
 
+import inspect
 import pathlib
 import re
 
@@ -11,6 +12,7 @@ from pydantic import BaseModel
 from semantic_warehouse_mcp.adapters import ENGINES, adapter_class
 from semantic_warehouse_mcp.config import ConfigFile
 from semantic_warehouse_mcp.guard import REFUSALS
+from semantic_warehouse_mcp.importers import dbt
 from semantic_warehouse_mcp.semantic import SCHEMA_FILES
 from semantic_warehouse_mcp.server import build_server
 from semantic_warehouse_mcp.vocabulary import KeyEntry, VocabularyFile
@@ -56,6 +58,15 @@ def test_every_vocabulary_key_and_ossie_version_has_its_entry_in_the_guide():
     assert not missing, f"vocabulary keys without an entry in docs/reference/semantic-models.md: {missing}"
     missing = [version for version in SCHEMA_FILES if f"| `{version}` |" not in page]
     assert not missing, f"Ossie versions without an entry in docs/reference/semantic-models.md: {missing}"
+
+
+def test_every_importer_key_and_option_has_its_entry_in_the_guide():
+    page = (DOCS / "reference" / "dbt-importer.md").read_text(encoding="utf-8")
+    missing = sorted(key for key in _keys(dbt.ImportFile) if f"`{key}`" not in page)
+    assert not missing, f"keys of the dbt importer without an entry in docs/reference/dbt-importer.md: {missing}"
+    options = re.findall(r'add_argument\("(--[a-z-]+)"', inspect.getsource(dbt.main))
+    missing = [option for option in options if f"| `{option}` |" not in page]
+    assert options and not missing, f"options of import-dbt without an entry in the importer's page: {missing}"
 
 
 def test_every_engine_and_its_keys_have_their_entry_in_the_guide():

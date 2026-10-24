@@ -335,7 +335,24 @@ async def test_what_yaml_reads_is_served_as_written(shop):
     assert answer["fields"][0]["custom_extensions"][0]["data"] == {
         "tags": ["identifier"], "country": "NO", "at": "2026-03-01 10:00:00", "1": "one",
     }  # fmt: skip
-    assert answer["custom_extensions"][1]["data"] == {"rate": "0.12345678901234567890", "big": 10**400}  # exact
+    # exact: a number no float is exactly comes as its text, as the answers keep numbers
+    assert answer["custom_extensions"][1]["data"] == {"rate": "0.12345678901234567890", "big": "1e400"}
+
+
+async def test_a_json_strings_numbers_keep_their_type(shop):
+    numbers = """'{"one": 1.0, "big": 1e16, "zero": -0.0, "tenth": 0.1, "int": 7, "huge": 123456789012345678901}'"""
+    config = shop(("""'{"anything": [1, 2]}'""", numbers))
+    answer, _ = await call(config, "describe_dataset", dataset="orders")
+    data = answer["custom_extensions"][1]["data"]
+    assert data == {"one": 1.0, "big": 1e16, "zero": -0.0, "tenth": 0.1, "int": 7, "huge": 123456789012345678901}
+    assert [type(data[key]) for key in ("one", "big", "int")] == [float, float, int]
+
+
+def test_a_json_string_holding_a_lone_surrogate_is_refused(shop):
+    found = shop(("""'{"anything": [1, 2]}'""", """'{"a": ["x\\ud800"]}'"""), problems=True)
+    assert len(found) == 1 and found[0].endswith(
+        "→ data: text that is not Unicode — a lone surrogate, \\ud800: write the character meant"
+    ), found
 
 
 @pytest.mark.parametrize("source", ["FROM marts.orders", "VALUES (1)", "-- a note\nSELECT 1", "marts.orders o"])

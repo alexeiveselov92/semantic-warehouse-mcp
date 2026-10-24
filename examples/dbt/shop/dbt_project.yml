@@ -1,0 +1,15 @@
+# A made-up shop's dbt project — made-up names only. It is parsed, never run: `dbt parse` makes the manifest.json the
+# importer's example reads (../README.md). The shop's tables themselves are made by examples/data/make_shop.py.
+name: shop
+version: "1.0.0"
+config-version: 2
+profile: shop
+
+model-paths: [models]
+macro-paths: [macros]
+
+models:
+  shop:
+    marts:
+      +schema: marts
+      +materialized: table

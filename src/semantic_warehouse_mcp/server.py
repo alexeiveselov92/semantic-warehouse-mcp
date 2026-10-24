@@ -511,7 +511,13 @@ def build_server(config: Config | None = None) -> MCPServer:
 
 
 def main(argv: list[str] | None = None) -> None:
-    """The console entry point: check the configuration, then serve over stdio."""
+    """The console entry point: check the configuration, then serve over stdio — or, as `import-dbt`, the importer."""
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["import-dbt"]:
+        from .importers import dbt
+
+        dbt.main(argv[1:])
+        return
     parser = argparse.ArgumentParser(
         prog="semantic-warehouse-mcp",
         description="A read-only MCP server for SQL databases with their semantics. Serves over stdio.",

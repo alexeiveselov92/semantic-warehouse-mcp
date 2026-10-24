@@ -337,12 +337,19 @@ def test_a_tag_outside_the_closed_list_is_refused_where_it_is(catalog):
 
 def test_no_teams_key_is_named_in_the_servers_code():
     """The server knows no team's keys: none of those a vocabulary declares here, nor the examples', is a string in
-    the code."""
+    the code — but where the dbt importer names, once, dbt's own field that holds dbt's tags."""
     keys = set(CATALOG_VOCABULARY["keys"]) | {"layer", "written_by", "owner", "dto", "topic", "repository"}
-    named = {
-        (path.name, node.value)
-        for path in SOURCE.rglob("*.py")
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
-        if isinstance(node, ast.Constant) and node.value in keys
-    }
+    named = set()
+    for path in SOURCE.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        dbts_own = {
+            id(node.value)
+            for node in ast.walk(tree)
+            if path.name == "dbt.py" and isinstance(node, ast.Assign) and ast.unparse(node.targets) == "MANIFEST_TAGS"
+        }
+        named |= {
+            (path.name, node.value)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant) and node.value in keys and id(node) not in dbts_own
+        }
     assert not named, f"a team's key named in the server's code: {sorted(named)}"

@@ -1,0 +1,1515 @@
+{
+ "metadata": {
+  "dbt_schema_version": "https://schemas.getdbt.com/dbt/manifest/v12.json",
+  "dbt_version": "1.10.15",
+  "project_name": "shop",
+  "adapter_type": "duckdb"
+ },
+ "nodes": {
+  "model.shop.orders": {
+   "database": "shop",
+   "schema": "marts",
+   "name": "orders",
+   "resource_type": "model",
+   "package_name": "shop",
+   "path": "marts/orders.sql",
+   "original_file_path": "models/marts/orders.sql",
+   "unique_id": "model.shop.orders",
+   "fqn": [
+    "shop",
+    "marts",
+    "orders"
+   ],
+   "alias": "orders",
+   "checksum": {
+    "name": "sha256",
+    "checksum": "a1535e236c240b6bd82f414dbb5c50d53606117456246c4c1bc921d70964f333"
+   },
+   "config": {
+    "enabled": true,
+    "alias": null,
+    "schema": "marts",
+    "database": null,
+    "tags": [
+     "daily"
+    ],
+    "meta": {
+     "layer": "mart",
+     "tags": [
+      "sales"
+     ],
+     "owner": "billing team"
+    },
+    "group": null,
+    "materialized": "table",
+    "incremental_strategy": null,
+    "batch_size": null,
+    "lookback": 1,
+    "begin": null,
+    "persist_docs": {},
+    "post-hook": [],
+    "pre-hook": [],
+    "quoting": {},
+    "column_types": {},
+    "full_refresh": null,
+    "unique_key": null,
+    "on_schema_change": "ignore",
+    "on_configuration_change": "apply",
+    "grants": {},
+    "packages": [],
+    "docs": {
+     "show": true,
+     "node_color": null
+    },
+    "contract": {
+     "enforced": false,
+     "alias_types": true
+    },
+    "event_time": "order_date",
+    "concurrent_batches": null,
+    "access": "protected",
+    "freshness": null
+   },
+   "tags": [
+    "daily"
+   ],
+   "description": "One row per paid order; test orders are removed.\namount is what the customer paid before refunds, refunded_amount what was refunded: revenue is\namount - refunded_amount, in the order's currency. Never add amounts of different currencies.",
+   "columns": {
+    "order_id": {
+     "name": "order_id",
+     "description": "The order.",
+     "meta": {
+      "tags": [
+       "identifier"
+      ]
+     },
+     "data_type": null,
+     "constraints": [],
+     "quote": null,
+     "config": {
+      "meta": {
+       "tags": [
+        "identifier"
+       ]
+      },
+      "tags": []
+     },
+     "tags": [],
+     "granularity": null,
+     "doc_blocks": []
+    },
+    "order_date": {
+     "name": "order_date",
+     "description": "The day the order was paid, UTC.",
+     "meta": {},
+     "data_type": null,
+     "constraints": [],
+     "quote": null,
+     "config": {
+      "meta": {},
+      "tags": []
+     },
+     "tags": [],
+     "granularity": null,
+     "doc_blocks": []
+    },
+    "customer_id": {
+     "name": "customer_id",
+     "description": "Who paid.",
+     "meta": {},
+     "data_type": null,
+     "constraints": [],
+     "quote": null,
+     "config": {
+      "meta": {},
+      "tags": []
+     },
+     "tags": [],
+     "granularity": null,
+     "doc_blocks": []
+    },
+    "currency": {
+     "name": "currency",
+     "description": "The currency the order was paid in.",
+     "meta": {},
+     "data_type": null,
+     "constraints": [],
+     "quote": null,
+     "config": {
+      "meta": {},
+      "tags": []
+     },
+     "tags": [],
+     "granularity": null,
+     "doc_blocks": []
+    },
+    "amount": {
+     "name": "amount",
+     "description": "What the customer paid, before refunds, in the order's currency.",
+     "meta": {
+      "tags": [
+       "money"
+      ]
+     },
+     "data_type": null,
+     "constraints": [],
+     "quote": null,
+     "config": {
+      "meta": {
+       "tags": [
+        "money"
+       ]
+      },
+      "tags": []
+     },
+     "tags": [],
+     "granularity": null,
+     "doc_blocks": []
+    },
+    "refunded_amount": {
+     "name": "refunded_amount",
+     "description": "What was refunded, in the order's currency; 0 when nothing was.",
+     "meta": {
+      "tags": [
+       "money"
+      ]
+     },
+     "data_type": null,
+     "constraints": [],
+     "quote": null,
+     "config": {
+      "meta": {
+       "tags": [
+        "money"
+       ]
+      },
+      "tags": []
+     },
+     "tags": [],
+     "granularity": null,
+     "doc_blocks": []
+    }
+   },
+   "meta": {
+    "layer": "mart",
+    "tags": [
+     "sales"
+    ],
+    "owner": "billing team"
+   },
+   "group": null,
+   "docs": {
+    "show": true,
+    "node_color": null
+   },
+   "patch_path": "shop://models/marts/_marts.yml",
+   "build_path": null,
+   "unrendered_config": {
+    "schema": "marts",
+    "materialized": "table",
+    "event_time": "order_date",
+    "tags": [
+     "daily"
+    ],
+    "meta": {
+     "layer": "mart",
+     "tags": [
+      "sales"
+     ],
+     "owner": "billing team"
+    }
+   },
+   "created_at": 1792857254.2225397,
+   "relation_name": "\"shop\".\"marts\".\"orders\"",
+   "raw_code": "-- Parsed, never run (../../dbt_project.yml): the made-up shop's orders come from examples/data/make_shop.py.\nselect order_id, event_date as order_date, customer_id, currency, amount, refunded_amount\nfrom {{ source('raw', 'events') }}\nwhere event_name = 'order_paid'",
+   "doc_blocks": [],
+   "language": "sql",
+   "refs": [],
+   "sources": [
+    [
+     "raw",
+     "events"
+    ]
+   ],
+   "metrics": [],
+   "depends_on": {
+    "macros": [],
+    "nodes": [
+     "source.shop.raw.events"
+    ]
+   },
+   "compiled_path": null,
+   "contract": {
+    "enforced": false,
+    "alias_types": true,
+    "checksum": null
+   },
+   "access": "protected",
+   "constraints": [],
+   "version": null,
+   "latest_version": null,
+   "deprecation_date": null,
+   "primary_key": [
+    "order_id"
+   ],
+   "time_spine": null
+  },
+  "model.shop.customers": {
+   "database": "shop",
+   "schema": "marts",
+   "name": "customers",
+   "resource_type": "model",
+   "package_name": "shop",
+   "path": "marts/customers.sql",
+   "original_file_path": "models/marts/customers.sql",
+   "unique_id": "model.shop.customers",
+   "fqn": [
+    "shop",
+    "marts",
+    "customers"
+   ],
+   "alias": "customers",
+   "checksum": {
+    "name": "sha256",
+    "checksum": "5f6f5b610ed07ef562cb7aa8a3d0dc8aeaf078edb5cfc6cecf1ca770b8bb198d"
+   },
+   "config": {
+    "enabled": true,
+    "alias": null,
+    "schema": "marts",
+    "database": null,
+    "tags": [
+     "daily"
+    ],
+    "meta": {
+     "layer": "mart",
+     "tags": [
+      "customers"
+     ]
+    },
+    "group": null,
+    "materialized": "table",
+    "incremental_strategy": null,
+    "batch_size": null,
+    "lookback": 1,
+    "begin": null,
+    "persist_docs": {},
+    "post-hook": [],
+    "pre-hook": [],
+    "quoting": {},
+    "column_types": {},
+    "full_refresh": null,
+    "unique_key": null,
+    "on_schema_change": "ignore",
+    "on_configuration_change": "apply",
+    "grants": {},
+    "packages": [],
+    "docs": {
+     "show": true,
+     "node_color": null
+    },
+    "contract": {
+     "enforced": false,
+     "alias_types": true
+    },
+    "event_time": null,
+    "concurrent_batches": null,
+    "access": "protected",
+    "freshness": null
+   },
+   "tags": [
+    "daily"
+   ],
+   "description": "One row per customer, with the country they signed up from.",
+   "columns": {
+    "customer_id": {
+     "name": "customer_id",
+     "description": "The customer.",
+     "meta": {
+      "tags": [
+       "identifier"
+      ]
+     },
+     "data_type": null,
+     "constraints": [],
+     "quote": null,
+     "config": {
+      "meta": {
+       "tags": [
+        "identifier"
+       ]
+      },
+      "tags": []
+     },
+     "tags": [],
+     "granularity": null,
+     "doc_blocks": []
+    },
+    "country": {
+     "name": "country",
+     "description": "The country the customer signed up from.",
+     "meta": {},
+     "data_type": null,
+     "constraints": [],
+     "quote": null,
+     "config": {
+      "meta": {},
+      "tags": []
+     },
+     "tags": [],
+     "granularity": null,
+     "doc_blocks": []
+    },
+    "signed_up_on": {
+     "name": "signed_up_on",
+     "description": "The day the customer signed up, UTC.",
+     "meta": {
+      "tags": [
+       "timestamp"
+      ]
+     },
+     "data_type": null,
+     "constraints": [],
+     "quote": null,
+     "config": {
+      "meta": {
+       "tags": [
+        "timestamp"
+       ]
+      },
+      "tags": []
+     },
+     "tags": [],
+     "granularity": null,
+     "doc_blocks": []
+    }
+   },
+   "meta": {
+    "layer": "mart",
+    "tags": [
+     "customers"
+    ]
+   },
+   "group": null,
+   "docs": {
+    "show": true,
+    "node_color": null
+   },
+   "patch_path": "shop://models/marts/_marts.yml",
+   "build_path": null,
+   "unrendered_config": {
+    "schema": "marts",
+    "materialized": "table",
+    "tags": [
+     "daily"
+    ],
+    "meta": {
+     "layer": "mart",
+     "tags": [
+      "customers"
+     ]
+    }
+   },
+   "created_at": 1792857254.2241378,
+   "relation_name": "\"shop\".\"marts\".\"customers\"",
+   "raw_code": "-- Parsed, never run (../../dbt_project.yml): the made-up shop's customers come from examples/data/make_shop.py.\nselect customer_id, country, min(event_date) as signed_up_on\nfrom {{ source('raw', 'events') }}\ngroup by customer_id, country",
+   "doc_blocks": [],
+   "language": "sql",
+   "refs": [],
+   "sources": [
+    [
+     "raw",
+     "events"
+    ]
+   ],
+   "metrics": [],
+   "depends_on": {
+    "macros": [],
+    "nodes": [
+     "source.shop.raw.events"
+    ]
+   },
+   "compiled_path": null,
+   "contract": {
+    "enforced": false,
+    "alias_types": true,
+    "checksum": null
+   },
+   "access": "protected",
+   "constraints": [],
+   "version": null,
+   "latest_version": null,
+   "deprecation_date": null,
+   "primary_key": [
+    "customer_id"
+   ],
+   "time_spine": null
+  },
+  "test.shop.unique_orders_order_id.fed79b3a6e": {
+   "database": "shop",
+   "schema": "dbt_test__audit",
+   "name": "unique_orders_order_id",
+   "resource_type": "test",
+   "package_name": "shop",
+   "path": "unique_orders_order_id.sql",
+   "original_file_path": "models/marts/_marts.yml",
+   "unique_id": "test.shop.unique_orders_order_id.fed79b3a6e",
+   "fqn": [
+    "shop",
+    "marts",
+    "unique_orders_order_id"
+   ],
+   "alias": "unique_orders_order_id",
+   "checksum": {
+    "name": "none",
+    "checksum": ""
+   },
+   "config": {
+    "enabled": true,
+    "alias": null,
+    "schema": "dbt_test__audit",
+    "database": null,
+    "tags": [],
+    "meta": {},
+    "group": null,
+    "materialized": "test",
+    "severity": "ERROR",
+    "store_failures": null,
+    "store_failures_as": null,
+    "where": null,
+    "limit": null,
+    "fail_calc": "count(*)",
+    "warn_if": "!= 0",
+    "error_if": "!= 0"
+   },
+   "tags": [],
+   "description": "",
+   "columns": {},
+   "meta": {},
+   "group": null,
+   "docs": {
+    "show": true,
+    "node_color": null
+   },
+   "patch_path": null,
+   "build_path": null,
+   "unrendered_config": {},
+   "created_at": 1792857254.292306,
+   "relation_name": null,
+   "raw_code": "{{ test_unique(**_dbt_generic_test_kwargs) }}",
+   "doc_blocks": [],
+   "language": "sql",
+   "refs": [
+    {
+     "name": "orders",
+     "package": null,
+     "version": null
+    }
+   ],
+   "sources": [],
+   "metrics": [],
+   "depends_on": {
+    "macros": [
+     "macro.dbt.test_unique"
+    ],
+    "nodes": [
+     "model.shop.orders"
+    ]
+   },
+   "compiled_path": null,
+   "contract": {
+    "enforced": false,
+    "alias_types": true,
+    "checksum": null
+   },
+   "column_name": "order_id",
+   "file_key_name": "models.orders",
+   "attached_node": "model.shop.orders",
+   "test_metadata": {
+    "name": "unique",
+    "kwargs": {
+     "column_name": "order_id",
+     "model": "{{ get_where_subquery(ref('orders')) }}"
+    },
+    "namespace": null
+   }
+  },
+  "test.shop.not_null_orders_order_id.cf6c17daed": {
+   "database": "shop",
+   "schema": "dbt_test__audit",
+   "name": "not_null_orders_order_id",
+   "resource_type": "test",
+   "package_name": "shop",
+   "path": "not_null_orders_order_id.sql",
+   "original_file_path": "models/marts/_marts.yml",
+   "unique_id": "test.shop.not_null_orders_order_id.cf6c17daed",
+   "fqn": [
+    "shop",
+    "marts",
+    "not_null_orders_order_id"
+   ],
+   "alias": "not_null_orders_order_id",
+   "checksum": {
+    "name": "none",
+    "checksum": ""
+   },
+   "config": {
+    "enabled": true,
+    "alias": null,
+    "schema": "dbt_test__audit",
+    "database": null,
+    "tags": [],
+    "meta": {},
+    "group": null,
+    "materialized": "test",
+    "severity": "ERROR",
+    "store_failures": null,
+    "store_failures_as": null,
+    "where": null,
+    "limit": null,
+    "fail_calc": "count(*)",
+    "warn_if": "!= 0",
+    "error_if": "!= 0"
+   },
+   "tags": [],
+   "description": "",
+   "columns": {},
+   "meta": {},
+   "group": null,
+   "docs": {
+    "show": true,
+    "node_color": null
+   },
+   "patch_path": null,
+   "build_path": null,
+   "unrendered_config": {},
+   "created_at": 1792857254.2932484,
+   "relation_name": null,
+   "raw_code": "{{ test_not_null(**_dbt_generic_test_kwargs) }}",
+   "doc_blocks": [],
+   "language": "sql",
+   "refs": [
+    {
+     "name": "orders",
+     "package": null,
+     "version": null
+    }
+   ],
+   "sources": [],
+   "metrics": [],
+   "depends_on": {
+    "macros": [
+     "macro.dbt.test_not_null"
+    ],
+    "nodes": [
+     "model.shop.orders"
+    ]
+   },
+   "compiled_path": null,
+   "contract": {
+    "enforced": false,
+    "alias_types": true,
+    "checksum": null
+   },
+   "column_name": "order_id",
+   "file_key_name": "models.orders",
+   "attached_node": "model.shop.orders",
+   "test_metadata": {
+    "name": "not_null",
+    "kwargs": {
+     "column_name": "order_id",
+     "model": "{{ get_where_subquery(ref('orders')) }}"
+    },
+    "namespace": null
+   }
+  },
+  "test.shop.relationships_orders_customer_id__customer_id__ref_customers_.c6ec7f58f2": {
+   "database": "shop",
+   "schema": "dbt_test__audit",
+   "name": "relationships_orders_customer_id__customer_id__ref_customers_",
+   "resource_type": "test",
+   "package_name": "shop",
+   "path": "relationships_orders_customer_id__customer_id__ref_customers_.sql",
+   "original_file_path": "models/marts/_marts.yml",
+   "unique_id": "test.shop.relationships_orders_customer_id__customer_id__ref_customers_.c6ec7f58f2",
+   "fqn": [
+    "shop",
+    "marts",
+    "relationships_orders_customer_id__customer_id__ref_customers_"
+   ],
+   "alias": "relationships_orders_customer_id__customer_id__ref_customers_",
+   "checksum": {
+    "name": "none",
+    "checksum": ""
+   },
+   "config": {
+    "enabled": true,
+    "alias": null,
+    "schema": "dbt_test__audit",
+    "database": null,
+    "tags": [],
+    "meta": {},
+    "group": null,
+    "materialized": "test",
+    "severity": "ERROR",
+    "store_failures": null,
+    "store_failures_as": null,
+    "where": null,
+    "limit": null,
+    "fail_calc": "count(*)",
+    "warn_if": "!= 0",
+    "error_if": "!= 0"
+   },
+   "tags": [],
+   "description": "",
+   "columns": {},
+   "meta": {},
+   "group": null,
+   "docs": {
+    "show": true,
+    "node_color": null
+   },
+   "patch_path": null,
+   "build_path": null,
+   "unrendered_config": {},
+   "created_at": 1792857254.2939165,
+   "relation_name": null,
+   "raw_code": "{{ test_relationships(**_dbt_generic_test_kwargs) }}",
+   "doc_blocks": [],
+   "language": "sql",
+   "refs": [
+    {
+     "name": "customers",
+     "package": null,
+     "version": null
+    },
+    {
+     "name": "orders",
+     "package": null,
+     "version": null
+    }
+   ],
+   "sources": [],
+   "metrics": [],
+   "depends_on": {
+    "macros": [
+     "macro.dbt.test_relationships",
+     "macro.dbt.get_where_subquery"
+    ],
+    "nodes": [
+     "model.shop.customers",
+     "model.shop.orders"
+    ]
+   },
+   "compiled_path": null,
+   "contract": {
+    "enforced": false,
+    "alias_types": true,
+    "checksum": null
+   },
+   "column_name": "customer_id",
+   "file_key_name": "models.orders",
+   "attached_node": "model.shop.orders",
+   "test_metadata": {
+    "name": "relationships",
+    "kwargs": {
+     "column_name": "customer_id",
+     "to": "ref('customers')",
+     "field": "customer_id",
+     "model": "{{ get_where_subquery(ref('orders')) }}"
+    },
+    "namespace": null
+   }
+  },
+  "test.shop.unique_customers_customer_id.c5af1ff4b1": {
+   "database": "shop",
+   "schema": "dbt_test__audit",
+   "name": "unique_customers_customer_id",
+   "resource_type": "test",
+   "package_name": "shop",
+   "path": "unique_customers_customer_id.sql",
+   "original_file_path": "models/marts/_marts.yml",
+   "unique_id": "test.shop.unique_customers_customer_id.c5af1ff4b1",
+   "fqn": [
+    "shop",
+    "marts",
+    "unique_customers_customer_id"
+   ],
+   "alias": "unique_customers_customer_id",
+   "checksum": {
+    "name": "none",
+    "checksum": ""
+   },
+   "config": {
+    "enabled": true,
+    "alias": null,
+    "schema": "dbt_test__audit",
+    "database": null,
+    "tags": [],
+    "meta": {},
+    "group": null,
+    "materialized": "test",
+    "severity": "ERROR",
+    "store_failures": null,
+    "store_failures_as": null,
+    "where": null,
+    "limit": null,
+    "fail_calc": "count(*)",
+    "warn_if": "!= 0",
+    "error_if": "!= 0"
+   },
+   "tags": [],
+   "description": "",
+   "columns": {},
+   "meta": {},
+   "group": null,
+   "docs": {
+    "show": true,
+    "node_color": null
+   },
+   "patch_path": null,
+   "build_path": null,
+   "unrendered_config": {},
+   "created_at": 1792857254.3028145,
+   "relation_name": null,
+   "raw_code": "{{ test_unique(**_dbt_generic_test_kwargs) }}",
+   "doc_blocks": [],
+   "language": "sql",
+   "refs": [
+    {
+     "name": "customers",
+     "package": null,
+     "version": null
+    }
+   ],
+   "sources": [],
+   "metrics": [],
+   "depends_on": {
+    "macros": [
+     "macro.dbt.test_unique"
+    ],
+    "nodes": [
+     "model.shop.customers"
+    ]
+   },
+   "compiled_path": null,
+   "contract": {
+    "enforced": false,
+    "alias_types": true,
+    "checksum": null
+   },
+   "column_name": "customer_id",
+   "file_key_name": "models.customers",
+   "attached_node": "model.shop.customers",
+   "test_metadata": {
+    "name": "unique",
+    "kwargs": {
+     "column_name": "customer_id",
+     "model": "{{ get_where_subquery(ref('customers')) }}"
+    },
+    "namespace": null
+   }
+  },
+  "test.shop.not_null_customers_customer_id.5c9bf9911d": {
+   "database": "shop",
+   "schema": "dbt_test__audit",
+   "name": "not_null_customers_customer_id",
+   "resource_type": "test",
+   "package_name": "shop",
+   "path": "not_null_customers_customer_id.sql",
+   "original_file_path": "models/marts/_marts.yml",
+   "unique_id": "test.shop.not_null_customers_customer_id.5c9bf9911d",
+   "fqn": [
+    "shop",
+    "marts",
+    "not_null_customers_customer_id"
+   ],
+   "alias": "not_null_customers_customer_id",
+   "checksum": {
+    "name": "none",
+    "checksum": ""
+   },
+   "config": {
+    "enabled": true,
+    "alias": null,
+    "schema": "dbt_test__audit",
+    "database": null,
+    "tags": [],
+    "meta": {},
+    "group": null,
+    "materialized": "test",
+    "severity": "ERROR",
+    "store_failures": null,
+    "store_failures_as": null,
+    "where": null,
+    "limit": null,
+    "fail_calc": "count(*)",
+    "warn_if": "!= 0",
+    "error_if": "!= 0"
+   },
+   "tags": [],
+   "description": "",
+   "columns": {},
+   "meta": {},
+   "group": null,
+   "docs": {
+    "show": true,
+    "node_color": null
+   },
+   "patch_path": null,
+   "build_path": null,
+   "unrendered_config": {},
+   "created_at": 1792857254.3034897,
+   "relation_name": null,
+   "raw_code": "{{ test_not_null(**_dbt_generic_test_kwargs) }}",
+   "doc_blocks": [],
+   "language": "sql",
+   "refs": [
+    {
+     "name": "customers",
+     "package": null,
+     "version": null
+    }
+   ],
+   "sources": [],
+   "metrics": [],
+   "depends_on": {
+    "macros": [
+     "macro.dbt.test_not_null"
+    ],
+    "nodes": [
+     "model.shop.customers"
+    ]
+   },
+   "compiled_path": null,
+   "contract": {
+    "enforced": false,
+    "alias_types": true,
+    "checksum": null
+   },
+   "column_name": "customer_id",
+   "file_key_name": "models.customers",
+   "attached_node": "model.shop.customers",
+   "test_metadata": {
+    "name": "not_null",
+    "kwargs": {
+     "column_name": "customer_id",
+     "model": "{{ get_where_subquery(ref('customers')) }}"
+    },
+    "namespace": null
+   }
+  },
+  "test.shop.relationships_customers_country__country__source_dictionaries_countries_.5181ab0f65": {
+   "database": "shop",
+   "schema": "dbt_test__audit",
+   "name": "relationships_customers_country__country__source_dictionaries_countries_",
+   "resource_type": "test",
+   "package_name": "shop",
+   "path": "relationships_customers_9b230ba75b62afec616dc5f175efd161.sql",
+   "original_file_path": "models/marts/_marts.yml",
+   "unique_id": "test.shop.relationships_customers_country__country__source_dictionaries_countries_.5181ab0f65",
+   "fqn": [
+    "shop",
+    "marts",
+    "relationships_customers_country__country__source_dictionaries_countries_"
+   ],
+   "alias": "relationships_customers_9b230ba75b62afec616dc5f175efd161",
+   "checksum": {
+    "name": "none",
+    "checksum": ""
+   },
+   "config": {
+    "enabled": true,
+    "alias": "relationships_customers_9b230ba75b62afec616dc5f175efd161",
+    "schema": "dbt_test__audit",
+    "database": null,
+    "tags": [],
+    "meta": {},
+    "group": null,
+    "materialized": "test",
+    "severity": "ERROR",
+    "store_failures": null,
+    "store_failures_as": null,
+    "where": null,
+    "limit": null,
+    "fail_calc": "count(*)",
+    "warn_if": "!= 0",
+    "error_if": "!= 0"
+   },
+   "tags": [],
+   "description": "",
+   "columns": {},
+   "meta": {},
+   "group": null,
+   "docs": {
+    "show": true,
+    "node_color": null
+   },
+   "patch_path": null,
+   "build_path": null,
+   "unrendered_config": {
+    "alias": "relationships_customers_9b230ba75b62afec616dc5f175efd161"
+   },
+   "created_at": 1792857254.304215,
+   "relation_name": null,
+   "raw_code": "{{ test_relationships(**_dbt_generic_test_kwargs) }}{{ config(alias=\"relationships_customers_9b230ba75b62afec616dc5f175efd161\") }}",
+   "doc_blocks": [],
+   "language": "sql",
+   "refs": [
+    {
+     "name": "customers",
+     "package": null,
+     "version": null
+    }
+   ],
+   "sources": [
+    [
+     "dictionaries",
+     "countries"
+    ]
+   ],
+   "metrics": [],
+   "depends_on": {
+    "macros": [
+     "macro.dbt.test_relationships",
+     "macro.dbt.get_where_subquery"
+    ],
+    "nodes": [
+     "source.shop.dictionaries.countries",
+     "model.shop.customers"
+    ]
+   },
+   "compiled_path": null,
+   "contract": {
+    "enforced": false,
+    "alias_types": true,
+    "checksum": null
+   },
+   "column_name": "country",
+   "file_key_name": "models.customers",
+   "attached_node": "model.shop.customers",
+   "test_metadata": {
+    "name": "relationships",
+    "kwargs": {
+     "column_name": "country",
+     "to": "source('dictionaries', 'countries')",
+     "field": "country",
+     "model": "{{ get_where_subquery(ref('customers')) }}"
+    },
+    "namespace": null
+   }
+  },
+  "test.shop.source_unique_dictionaries_countries_country.6e4487952e": {
+   "database": "shop",
+   "schema": "dbt_test__audit",
+   "name": "source_unique_dictionaries_countries_country",
+   "resource_type": "test",
+   "package_name": "shop",
+   "path": "source_unique_dictionaries_countries_country.sql",
+   "original_file_path": "models/sources.yml",
+   "unique_id": "test.shop.source_unique_dictionaries_countries_country.6e4487952e",
+   "fqn": [
+    "shop",
+    "source_unique_dictionaries_countries_country"
+   ],
+   "alias": "source_unique_dictionaries_countries_country",
+   "checksum": {
+    "name": "none",
+    "checksum": ""
+   },
+   "config": {
+    "enabled": true,
+    "alias": null,
+    "schema": "dbt_test__audit",
+    "database": null,
+    "tags": [],
+    "meta": {},
+    "group": null,
+    "materialized": "test",
+    "severity": "ERROR",
+    "store_failures": null,
+    "store_failures_as": null,
+    "where": null,
+    "limit": null,
+    "fail_calc": "count(*)",
+    "warn_if": "!= 0",
+    "error_if": "!= 0"
+   },
+   "tags": [],
+   "description": "",
+   "columns": {},
+   "meta": {},
+   "group": null,
+   "docs": {
+    "show": true,
+    "node_color": null
+   },
+   "patch_path": null,
+   "build_path": null,
+   "unrendered_config": {},
+   "created_at": 1792857254.3199975,
+   "relation_name": null,
+   "raw_code": "{{ test_unique(**_dbt_generic_test_kwargs) }}",
+   "doc_blocks": [],
+   "language": "sql",
+   "refs": [],
+   "sources": [
+    [
+     "dictionaries",
+     "countries"
+    ]
+   ],
+   "metrics": [],
+   "depends_on": {
+    "macros": [
+     "macro.dbt.test_unique"
+    ],
+    "nodes": [
+     "source.shop.dictionaries.countries"
+    ]
+   },
+   "compiled_path": null,
+   "contract": {
+    "enforced": false,
+    "alias_types": true,
+    "checksum": null
+   },
+   "column_name": "country",
+   "file_key_name": "sources.dictionaries",
+   "attached_node": null,
+   "test_metadata": {
+    "name": "unique",
+    "kwargs": {
+     "column_name": "country",
+     "model": "{{ get_where_subquery(source('dictionaries', 'countries')) }}"
+    },
+    "namespace": null
+   }
+  },
+  "test.shop.source_not_null_dictionaries_countries_country.2d5ebe47b3": {
+   "database": "shop",
+   "schema": "dbt_test__audit",
+   "name": "source_not_null_dictionaries_countries_country",
+   "resource_type": "test",
+   "package_name": "shop",
+   "path": "source_not_null_dictionaries_countries_country.sql",
+   "original_file_path": "models/sources.yml",
+   "unique_id": "test.shop.source_not_null_dictionaries_countries_country.2d5ebe47b3",
+   "fqn": [
+    "shop",
+    "source_not_null_dictionaries_countries_country"
+   ],
+   "alias": "source_not_null_dictionaries_countries_country",
+   "checksum": {
+    "name": "none",
+    "checksum": ""
+   },
+   "config": {
+    "enabled": true,
+    "alias": null,
+    "schema": "dbt_test__audit",
+    "database": null,
+    "tags": [],
+    "meta": {},
+    "group": null,
+    "materialized": "test",
+    "severity": "ERROR",
+    "store_failures": null,
+    "store_failures_as": null,
+    "where": null,
+    "limit": null,
+    "fail_calc": "count(*)",
+    "warn_if": "!= 0",
+    "error_if": "!= 0"
+   },
+   "tags": [],
+   "description": "",
+   "columns": {},
+   "meta": {},
+   "group": null,
+   "docs": {
+    "show": true,
+    "node_color": null
+   },
+   "patch_path": null,
+   "build_path": null,
+   "unrendered_config": {},
+   "created_at": 1792857254.3207512,
+   "relation_name": null,
+   "raw_code": "{{ test_not_null(**_dbt_generic_test_kwargs) }}",
+   "doc_blocks": [],
+   "language": "sql",
+   "refs": [],
+   "sources": [
+    [
+     "dictionaries",
+     "countries"
+    ]
+   ],
+   "metrics": [],
+   "depends_on": {
+    "macros": [
+     "macro.dbt.test_not_null"
+    ],
+    "nodes": [
+     "source.shop.dictionaries.countries"
+    ]
+   },
+   "compiled_path": null,
+   "contract": {
+    "enforced": false,
+    "alias_types": true,
+    "checksum": null
+   },
+   "column_name": "country",
+   "file_key_name": "sources.dictionaries",
+   "attached_node": null,
+   "test_metadata": {
+    "name": "not_null",
+    "kwargs": {
+     "column_name": "country",
+     "model": "{{ get_where_subquery(source('dictionaries', 'countries')) }}"
+    },
+    "namespace": null
+   }
+  }
+ },
+ "sources": {
+  "source.shop.raw.events": {
+   "database": "shop",
+   "schema": "raw",
+   "name": "events",
+   "resource_type": "source",
+   "package_name": "shop",
+   "path": "models/sources.yml",
+   "original_file_path": "models/sources.yml",
+   "unique_id": "source.shop.raw.events",
+   "fqn": [
+    "shop",
+    "raw",
+    "events"
+   ],
+   "source_name": "raw",
+   "source_description": "What the shop's site sends, as sent.",
+   "loader": "",
+   "identifier": "events",
+   "quoting": {
+    "database": null,
+    "schema": null,
+    "identifier": null,
+    "column": null
+   },
+   "loaded_at_field": null,
+   "loaded_at_query": null,
+   "freshness": {
+    "warn_after": {
+     "count": null,
+     "period": null
+    },
+    "error_after": {
+     "count": null,
+     "period": null
+    },
+    "filter": null
+   },
+   "external": null,
+   "description": "Every event the shop's site sends, as sent — one row per event.\nLarge: a query must bound event_date.",
+   "columns": {
+    "event_date": {
+     "name": "event_date",
+     "description": "The day of the event, UTC — the table's partition.",
+     "meta": {
+      "tags": [
+       "timestamp"
+      ]
+     },
+     "data_type": null,
+     "constraints": [],
+     "quote": null,
+     "config": {
+      "meta": {
+       "tags": [
+        "timestamp"
+       ]
+      },
+      "tags": []
+     },
+     "tags": [],
+     "granularity": null,
+     "doc_blocks": []
+    },
+    "event_time": {
+     "name": "event_time",
+     "description": "When the event happened, UTC.",
+     "meta": {},
+     "data_type": null,
+     "constraints": [],
+     "quote": null,
+     "config": {
+      "meta": {},
+      "tags": []
+     },
+     "tags": [],
+     "granularity": null,
+     "doc_blocks": []
+    },
+    "event_name": {
+     "name": "event_name",
+     "description": "What happened: page_view, cart_abandoned, order_paid.",
+     "meta": {},
+     "data_type": null,
+     "constraints": [],
+     "quote": null,
+     "config": {
+      "meta": {},
+      "tags": []
+     },
+     "tags": [],
+     "granularity": null,
+     "doc_blocks": []
+    },
+    "customer_id": {
+     "name": "customer_id",
+     "description": "Who it happened to.",
+     "meta": {
+      "tags": [
+       "identifier"
+      ]
+     },
+     "data_type": null,
+     "constraints": [],
+     "quote": null,
+     "config": {
+      "meta": {
+       "tags": [
+        "identifier"
+       ]
+      },
+      "tags": []
+     },
+     "tags": [],
+     "granularity": null,
+     "doc_blocks": []
+    },
+    "order_id": {
+     "name": "order_id",
+     "description": "The order, for an order's events; empty otherwise.",
+     "meta": {},
+     "data_type": null,
+     "constraints": [],
+     "quote": null,
+     "config": {
+      "meta": {},
+      "tags": []
+     },
+     "tags": [],
+     "granularity": null,
+     "doc_blocks": []
+    }
+   },
+   "meta": {
+    "layer": "raw",
+    "tags": [
+     "site"
+    ],
+    "written_by": [
+     {
+      "topic": "shop.site_events",
+      "repository": "https://github.com/acme/shop-site"
+     }
+    ]
+   },
+   "source_meta": {},
+   "tags": [],
+   "config": {
+    "enabled": true,
+    "event_time": null,
+    "freshness": {
+     "warn_after": {
+      "count": null,
+      "period": null
+     },
+     "error_after": {
+      "count": null,
+      "period": null
+     },
+     "filter": null
+    },
+    "loaded_at_field": null,
+    "loaded_at_query": null,
+    "meta": {
+     "layer": "raw",
+     "tags": [
+      "site"
+     ],
+     "written_by": [
+      {
+       "topic": "shop.site_events",
+       "repository": "https://github.com/acme/shop-site"
+      }
+     ]
+    },
+    "tags": []
+   },
+   "patch_path": null,
+   "unrendered_config": {
+    "meta": {
+     "layer": "raw",
+     "tags": [
+      "site"
+     ],
+     "written_by": [
+      {
+       "topic": "shop.site_events",
+       "repository": "https://github.com/acme/shop-site"
+      }
+     ]
+    },
+    "loaded_at_field": null,
+    "loaded_at_query": null,
+    "tags": []
+   },
+   "relation_name": "\"shop\".\"raw\".\"events\"",
+   "created_at": 1792857254.3148782,
+   "unrendered_database": null,
+   "unrendered_schema": null,
+   "doc_blocks": []
+  },
+  "source.shop.dictionaries.countries": {
+   "database": "shop",
+   "schema": "dictionaries",
+   "name": "countries",
+   "resource_type": "source",
+   "package_name": "shop",
+   "path": "models/sources.yml",
+   "original_file_path": "models/sources.yml",
+   "unique_id": "source.shop.dictionaries.countries",
+   "fqn": [
+    "shop",
+    "dictionaries",
+    "countries"
+   ],
+   "source_name": "dictionaries",
+   "source_description": "",
+   "loader": "",
+   "identifier": "countries",
+   "quoting": {
+    "database": null,
+    "schema": null,
+    "identifier": null,
+    "column": null
+   },
+   "loaded_at_field": null,
+   "loaded_at_query": null,
+   "freshness": {
+    "warn_after": {
+     "count": null,
+     "period": null
+    },
+    "error_after": {
+     "count": null,
+     "period": null
+    },
+    "filter": null
+   },
+   "external": null,
+   "description": "Countries the shop sells to, with the currency each pays in.",
+   "columns": {
+    "country": {
+     "name": "country",
+     "description": "The country's ISO 3166 code.",
+     "meta": {},
+     "data_type": null,
+     "constraints": [],
+     "quote": null,
+     "config": {
+      "meta": {},
+      "tags": []
+     },
+     "tags": [],
+     "granularity": null,
+     "doc_blocks": []
+    },
+    "name": {
+     "name": "name",
+     "description": "The country's name, in English.",
+     "meta": {},
+     "data_type": null,
+     "constraints": [],
+     "quote": null,
+     "config": {
+      "meta": {},
+      "tags": []
+     },
+     "tags": [],
+     "granularity": null,
+     "doc_blocks": []
+    },
+    "currency": {
+     "name": "currency",
+     "description": "The currency its customers pay in.",
+     "meta": {},
+     "data_type": null,
+     "constraints": [],
+     "quote": null,
+     "config": {
+      "meta": {},
+      "tags": []
+     },
+     "tags": [],
+     "granularity": null,
+     "doc_blocks": []
+    }
+   },
+   "meta": {
+    "layer": "mart",
+    "tags": [
+     "customers"
+    ]
+   },
+   "source_meta": {},
+   "tags": [],
+   "config": {
+    "enabled": true,
+    "event_time": null,
+    "freshness": {
+     "warn_after": {
+      "count": null,
+      "period": null
+     },
+     "error_after": {
+      "count": null,
+      "period": null
+     },
+     "filter": null
+    },
+    "loaded_at_field": null,
+    "loaded_at_query": null,
+    "meta": {
+     "layer": "mart",
+     "tags": [
+      "customers"
+     ]
+    },
+    "tags": []
+   },
+   "patch_path": null,
+   "unrendered_config": {
+    "meta": {
+     "layer": "mart",
+     "tags": [
+      "customers"
+     ]
+    },
+    "loaded_at_field": null,
+    "loaded_at_query": null,
+    "tags": []
+   },
+   "relation_name": "\"shop\".\"dictionaries\".\"countries\"",
+   "created_at": 1792857254.3213644,
+   "unrendered_database": null,
+   "unrendered_schema": null,
+   "doc_blocks": []
+  }
+ }
+}

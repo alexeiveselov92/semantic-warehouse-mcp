@@ -54,10 +54,25 @@ def _mapping_without_duplicates(loader: yaml.SafeLoader, node: yaml.MappingNode)
 
 _TeamLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _mapping_without_duplicates)
 
+_SURROGATE = re.compile("[\ud800-\udfff]")
+
+
+def _text(loader: yaml.SafeLoader, node: yaml.ScalarNode) -> str:
+    """Text as written — a character escaped as a surrogate pair (`\\ud83d\\ude00`, as JSON writes it) read as that
+    one character; a lone surrogate is left for the check to refuse."""
+    text = loader.construct_scalar(node)
+    if _SURROGATE.search(text):
+        text = text.encode("utf-16", "surrogatepass").decode("utf-16", "surrogatepass")
+    return text
+
+
+_TeamLoader.add_constructor("tag:yaml.org,2002:str", _text)
+
 
 def read_yaml(text: str) -> Any:
-    """YAML (or JSON) text as data. Raises yaml.YAMLError: a key written twice, a value Python cannot hold, a file
-    whose aliases expand past MAX_VALUES or refer to themselves."""
+    """YAML (or JSON) text as data. Raises yaml.YAMLError: a key written twice, a value Python cannot hold, text that
+    is not Unicode (an escaped lone surrogate, which no answer can carry), a file whose aliases expand past MAX_VALUES
+    or refer to themselves."""
     try:
         data = yaml.load(text, Loader=_TeamLoader)
     except (ValueError, TypeError, RecursionError) as error:  # a number of thousands of digits, nesting past Python's
@@ -73,6 +88,8 @@ def read_yaml(text: str) -> Any:
 
 def _values(node: Any, counted: dict[int, int], open_: set[int]) -> int:
     """How many values a node holds with its aliases expanded — each shared node counted once, in linear time."""
+    if isinstance(node, str):
+        unicode_problem(node)
     if not isinstance(node, (dict, list)):
         return 1
     key = id(node)
@@ -84,6 +101,18 @@ def _values(node: Any, counted: dict[int, int], open_: set[int]) -> int:
         counted[key] = 1 + sum(_values(child, counted, open_) for child in children)
         open_.discard(key)
     return counted[key]
+
+
+def unicode_problem(text: str) -> None:
+    """Raises yaml.YAMLError for text holding a lone surrogate (`\\ud800` escaped in YAML or JSON): not Unicode, it
+    cannot be sent in an answer."""
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError as error:
+        found = f"\\u{ord(text[error.start]):04x}"
+        raise yaml.YAMLError(
+            f"text that is not Unicode — a lone surrogate, {found}: write the character meant"
+        ) from None
 
 
 def load_file(path: pathlib.Path) -> Any:
@@ -110,8 +139,8 @@ def yaml_problem(error: yaml.YAMLError) -> str:
     return redact(str(error))
 
 
-# A password written inside a URL: user:password@host.
-_CREDENTIALS = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)[^\s/@'\"]+@")
+# A password written inside a URL: user:password@host — up to the last @, since a password may hold @ or /.
+_CREDENTIALS = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)[^\s'\"]*@")
 
 
 def redact(text: str) -> str:
@@ -141,8 +170,28 @@ def describe(error: ValidationError, data: Any, model: type[BaseModel]) -> list[
         else:
             message = item["msg"][0].lower() + item["msg"][1:]
             secret = any(isinstance(step, str) and SECRET_KEY.search(step) for step in item["loc"])
-            lines.append(f"{where}: {message}" + ("" if secret else f" (got {item['input']!r})"))
+            got = item["input"]
+            if secret:
+                lines.append(f"{where}: {message}")
+            elif _holds_secret(got):
+                lines.append(f"{where}: {message} (got a {'mapping' if isinstance(got, dict) else 'list'})")
+            else:
+                lines.append(f"{where}: {message} (got {got!r})")
     return lines
+
+
+def _holds_secret(value: Any) -> bool:
+    """Whether a mapping or a list holds, at any depth, a key that may name a secret — its value never repeated."""
+    stack = [value]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            if any(isinstance(key, str) and SECRET_KEY.search(key) for key in node):
+                return True
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node)
+    return False
 
 
 def _known_keys(model: type[BaseModel], loc: tuple[Any, ...]) -> list[str]:

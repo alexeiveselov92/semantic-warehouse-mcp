@@ -22,10 +22,11 @@ from typing import Any
 
 import jsonschema
 import sqlglot
+import yaml
 from sqlglot import exp
 from sqlglot.errors import SqlglotError
 
-from . import answers, files
+from . import files
 
 # The versions this server reads, each checked against its own schema (schemas/README.md says where each is from).
 SCHEMA_FILES = {"0.2.0.dev0": "ossie-0.2.0.dev0.json", "0.1.1": "osi-0.1.1.json"}
@@ -83,6 +84,11 @@ def read(path: pathlib.Path, file: str) -> tuple[list[Model], list[str]]:
         data = files.load_file(path)
     except files.FileProblem as problem:
         return [], [f"{file}: {problem}"]
+    return check(data, file)
+
+
+def check(data: Any, file: str) -> tuple[list[Model], list[str]]:
+    """The models of a document already read, checked as `read` checks a file's."""
     if not isinstance(data, dict):
         return [], [f"{file}: an Ossie document is a mapping with `version` at the top"]
     version = data.get("version")
@@ -96,11 +102,7 @@ def read(path: pathlib.Path, file: str) -> tuple[list[Model], list[str]]:
     if problems:
         return [], [f"{file} → {problem}" for problem in problems]
 
-    strict = copy.deepcopy(data)
-    for _, _, extension in _extensions_of_document(strict, version):
-        if isinstance(extension.get("data"), dict):
-            extension["data"] = json.dumps(extension["data"], ensure_ascii=False)
-    problems = _schema_problems(strict, version, file)
+    problems = _schema_problems(strict_copy(data), version, file)
     if problems:
         return [], problems
 
@@ -108,12 +110,24 @@ def read(path: pathlib.Path, file: str) -> tuple[list[Model], list[str]]:
     for prefix, model in _models_of(data, version):
         where = f"{file} → {files.location(prefix, data)}" if prefix else file
         problems.extend(f"{where} → {problem}" for problem in _rule_problems(model))
-        for _, _, extension in extensions(model):
+        for place, _, extension in extensions(model):
             extension["data"] = _read_data(extension["data"])
+            if problem := _unicode(extension["data"]):
+                problems.append(f"{where} → {files.location(place, model)} → data: {problem}")
         models.append(Model(name=model["name"], version=version, where=where, file=file, document=model))
     if not models and not problems:
         problems.append(f"{file}: holds no model")
     return ([], problems) if problems else (models, [])
+
+
+def strict_copy(document: dict[str, Any]) -> dict[str, Any]:
+    """The document as strict Ossie writes it: each `custom_extensions` data written as a mapping turned into the JSON
+    string it stands for."""
+    strict = copy.deepcopy(document)
+    for _, _, extension in _extensions_of_document(strict, strict["version"]):
+        if isinstance(extension.get("data"), dict):
+            extension["data"] = json.dumps(extension["data"], ensure_ascii=False, allow_nan=False)
+    return strict
 
 
 def _as_data(node: Any, place: tuple[Any, ...], document: Any, problems: list[str]) -> Any:
@@ -213,18 +227,40 @@ def _repeated(names: Any) -> list[str]:
 
 
 def _read_data(data: Any) -> Any:
-    """A custom extension's data as served: a mapping as written; a JSON string decoded — its numbers exact, as the
-    answers keep them — or kept as the string when it is not JSON (NaN and Infinity are not)."""
+    """A custom extension's data as served: a mapping as written; a JSON string decoded — its numbers as written, as
+    the answers keep them — or kept as the string when it is not JSON (NaN and Infinity are not)."""
     if not isinstance(data, str):
         return data
     try:
-        return answers.value(json.loads(data, parse_float=decimal.Decimal, parse_constant=_not_json))
+        return json.loads(data, parse_float=_json_number, parse_constant=_not_json)
     except (ValueError, RecursionError):
         return data
 
 
+def _json_number(text: str) -> float | str:
+    """A JSON number with a point or an exponent: the number it is (1.0 stays 1.0) — or its text, when no float is
+    exactly it, never rounded."""
+    as_float = float(text)
+    exact = math.isfinite(as_float) and decimal.Decimal(repr(as_float)) == decimal.Decimal(text)
+    return as_float if exact else text
+
+
 def _not_json(constant: str) -> None:
     raise ValueError(f"{constant} is not JSON")
+
+
+def _unicode(node: Any) -> str | None:
+    """What is wrong when a value holds text that is not Unicode (a lone surrogate) — or None."""
+    texts = [node] if isinstance(node, str) else [*node.keys(), *node.values()] if isinstance(node, dict) else node
+    for text in texts if isinstance(texts, list) else []:
+        if isinstance(text, str):
+            try:
+                files.unicode_problem(text)
+            except yaml.YAMLError as error:
+                return str(error)
+        elif isinstance(text, (dict, list)) and (problem := _unicode(text)):
+            return problem
+    return None
 
 
 def _models_of(document: dict[str, Any], version: str) -> Iterator[tuple[tuple[Any, ...], dict[str, Any]]]:

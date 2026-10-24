@@ -1,0 +1,49 @@
+version: 2
+
+sources:
+  - name: raw
+    description: What the shop's site sends, as sent.
+    tables:
+      - name: events
+        description: |-
+          Every event the shop's site sends, as sent — one row per event.
+          Large: a query must bound event_date.
+        config:
+          meta:
+            layer: raw
+            tags: [site]
+            written_by:
+              - topic: shop.site_events
+                repository: https://github.com/acme/shop-site
+        columns:
+          - name: event_date
+            description: The day of the event, UTC — the table's partition.
+            config:
+              meta: { tags: [timestamp] }
+          - name: event_time
+            description: When the event happened, UTC.
+          - name: event_name
+            description: "What happened: page_view, cart_abandoned, order_paid."
+          - name: customer_id
+            description: Who it happened to.
+            config:
+              meta: { tags: [identifier] }
+          - name: order_id
+            description: The order, for an order's events; empty otherwise.
+
+  - name: dictionaries
+    tables:
+      - name: countries
+        description: Countries the shop sells to, with the currency each pays in.
+        config:
+          meta:
+            layer: mart
+            tags: [customers]
+        columns:
+          - name: country
+            description: The country's ISO 3166 code.
+            data_tests: [unique, not_null]
+          - name: name
+            description: The country's name, in English.
+          - name: currency
+            description: The currency its customers pay in.

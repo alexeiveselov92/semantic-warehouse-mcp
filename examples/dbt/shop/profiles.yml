@@ -1,0 +1,7 @@
+# Parsing reaches no database; dbt needs a profile all the same.
+shop:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: ../../data/shop.duckdb
