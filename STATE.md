@@ -5,7 +5,8 @@
 **Updated:** 24 October 2026.
 
 **Released: 0.1.0, pre-alpha** — on PyPI (`uvx semantic-warehouse-mcp`) and GHCR
-(`ghcr.io/alexeiveselov92/semantic-warehouse-mcp:0.1.0`). **Milestones 3 (the semantic layer, your own metadata,
+(`ghcr.io/alexeiveselov92/semantic-warehouse-mcp:0.1.0`); **`pyproject.toml` says 0.2.0**, published once `v0.2.0` is
+tagged. **Milestones 3 (the semantic layer, your own metadata,
 context and skills) and 4 (the docs site) are done** (`dev/PLAN.md`) — the site goes live at `swm.pipelab.dev` with
 the push below. Next: **milestone 5, the other databases**. Parts of 8–9 (HTTP, the image, the release) came early, for
 a company's deployment. Skills and repositories are on `main`, in no published version yet.
@@ -63,15 +64,15 @@ milestone 6); **the site at `swm.pipelab.dev`** (the author; the package keeps i
 ## Next step
 
 Milestone 5 (`dev/PLAN.md`): the other databases people use. A company's deployment wants skills and repositories in
-an image: that needs a release (below) — and the site already describes `main`, ahead of 0.1.0.
+an image: that needs the 0.2.0 release (below) — and the site already describes `main`.
 
 ## What the author needs to do
 
 1. **Put the site live, in this order**: push this repository (`website.yml` builds the site's image); check that the
    GHCR package `semantic-warehouse-mcp-web` is public (an anonymous `docker pull` — the agent can check); then push
    pipelab (its commit `swm-web`). Pushing pipelab first would fail its deploy on a missing image.
-2. **A release for skills and repositories**: bump `pyproject.toml` to `0.2.0`, commit, tag `v0.2.0`, push the tag (or
-   ask the agent to bump and commit; the tag stays the author's).
+2. **Release 0.2.0** (skills and repositories): `pyproject.toml` is bumped; tag `v0.2.0` and push the tag —
+   `publish.yml` puts it on PyPI, `image.yml` on GHCR.
 3. For the ClickHouse tests locally, Docker running. (`swm.pipelab.dev` needs no DNS work: a wildcard.)
 
 ## Don't
