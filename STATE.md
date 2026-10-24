@@ -7,8 +7,8 @@
 **Released: 0.1.0, pre-alpha** — on PyPI (`uvx semantic-warehouse-mcp`) and GHCR
 (`ghcr.io/alexeiveselov92/semantic-warehouse-mcp:0.1.0`); **`pyproject.toml` says 0.2.0**, published once `v0.2.0` is
 tagged. **Milestones 3 (the semantic layer, your own metadata,
-context and skills) and 4 (the docs site) are done** (`dev/PLAN.md`) — the site goes live at `swm.pipelab.dev` with
-the push below. Next: **milestone 5, the other databases**. Parts of 8–9 (HTTP, the image, the release) came early, for
+context and skills) and 4 (the docs site) are done** (`dev/PLAN.md`) — the site is live at https://swm.pipelab.dev,
+redeployed on every push that changes it. Next: **milestone 5, the other databases**. Parts of 8–9 (HTTP, the image, the release) came early, for
 a company's deployment. Skills and repositories are on `main`, in no published version yet.
 
 ## What exists
@@ -36,7 +36,7 @@ a company's deployment. Skills and repositories are on `main`, in no published v
   the dbt importer, the guard, engines, running it. `tests/test_docs.py` holds every tool, key and option to its entry.
 - **The site** (`website/`): Astro + Starlight from `docs/` on repo-reader-mcp's pattern; a landing page whose panels
   are the server's real answers on the made-up shop; `website.yml` builds `…/semantic-warehouse-mcp-web` and tells
-  pipelab, where `swm-web` serves it (committed in pipelab, not pushed).
+  pipelab, whose `Deploy swm` redeploys `swm-web` on that dispatch.
 
 ## How it was verified
 
@@ -68,12 +68,9 @@ an image: that needs the 0.2.0 release (below) — and the site already describe
 
 ## What the author needs to do
 
-1. **Put the site live, in this order**: push this repository (`website.yml` builds the site's image); check that the
-   GHCR package `semantic-warehouse-mcp-web` is public (an anonymous `docker pull` — the agent can check); then push
-   pipelab (its commit `swm-web`). Pushing pipelab first would fail its deploy on a missing image.
-2. **Release 0.2.0** (skills and repositories): `pyproject.toml` is bumped; tag `v0.2.0` and push the tag —
+1. **Release 0.2.0** (skills and repositories): `pyproject.toml` is bumped; tag `v0.2.0` and push the tag —
    `publish.yml` puts it on PyPI, `image.yml` on GHCR.
-3. For the ClickHouse tests locally, Docker running. (`swm.pipelab.dev` needs no DNS work: a wildcard.)
+2. For the ClickHouse tests locally, Docker running. (`swm.pipelab.dev` needs no DNS work: a wildcard.)
 
 ## Don't
 

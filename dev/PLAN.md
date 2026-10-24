@@ -77,8 +77,8 @@ The engine production work runs on (the author, 2026-10-24) — moved up from "t
 - [x] In pipelab (`../pipelab`, under its own rules): the site at `swm.pipelab.dev` — a compose service
       behind Traefik and its `deploy-*.yml`, as detectkit's site is served. ✅ 2026-10-24 — committed in pipelab
       (`swm-web`, `deploy-swm.yml`), not pushed: it goes after this repository's first image.
-- [ ] The guide as it stands published there; from now on every milestone's pages go live with it — at the push
-      (`STATE.md`, "What the author needs to do").
+- [x] The guide as it stands published there; from now on every milestone's pages go live with it. ✅ 2026-10-24 —
+      live at https://swm.pipelab.dev: a push builds the image and pipelab's `Deploy swm` redeploys it on the dispatch.
 
 ## Milestone 5. The other databases people use — 2 sessions
 
