@@ -14,6 +14,11 @@ COPY src ./src
 RUN uv sync --frozen --no-dev --no-editable
 
 FROM python:3.12-slim
+# git fetches context and skills kept in a repository (docs/reference/configuration.md, "Repositories"). Fetching and
+# checking out need none of its Perl scripts: Perl and the manual pages are taken out again (70 MB of 120).
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git \
+    && dpkg --purge --force-depends $(dpkg-query -W -f '${Package}\n' perl 'perl-modules-*' 'libperl5*' liberror-perl git-man) \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=build /app/.venv /app/.venv
 ENV PATH=/app/.venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 HOME=/tmp
 USER 10001:10001

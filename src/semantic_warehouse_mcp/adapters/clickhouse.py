@@ -14,6 +14,7 @@ from typing import Annotated, Any
 import httpx
 from pydantic import Field
 
+from .. import files
 from . import Adapter, AdapterError, Column, EngineReading, EngineSettings, Result, Table, TimedOut
 
 # The name of an environment variable — never its value.
@@ -126,15 +127,15 @@ class ClickHouseAdapter(Adapter):
 
     def _headers(self) -> dict[str, str]:
         headers = {}
-        for header, variable in (
-            ("X-ClickHouse-User", self.settings.user_env),
-            ("X-ClickHouse-Key", self.settings.password_env),
+        for header, variable, key in (
+            ("X-ClickHouse-User", self.settings.user_env, "`user_env`"),
+            ("X-ClickHouse-Key", self.settings.password_env, "`password_env`"),
         ):
             if variable is None:
                 continue
             value = os.environ.get(variable)
             if value is None:
-                raise AdapterError(f"the variable {variable} is not set")
+                raise AdapterError(f"the variable {files.variable(variable, key)} is not set")
             headers[header] = value
         return headers
 

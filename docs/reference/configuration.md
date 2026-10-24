@@ -63,8 +63,8 @@ Required: a list of at least one connection. Each connection:
 | `large_tables` | | tables a query must bound, each `{ table, bound_by }` — see below |
 | `limits` | | the limits of one query — see below |
 | `instructions` | | your own rules for agents working with this database, as text — see [Instructions and context](#instructions-and-context) |
-| `context` | | your own documents about this database: files and folders — see [Instructions and context](#instructions-and-context) |
-| `skills` | | your own skills for this database: folders — see [Skills](#skills) |
+| `context` | | your own documents about this database: files and folders, on disk or [in a repository](#repositories) — see [Instructions and context](#instructions-and-context) |
+| `skills` | | your own skills for this database: folders, on disk or [in a repository](#repositories) — see [Skills](#skills) |
 | `semantic_models` | | its semantic models in Apache Ossie: files and folders — see [Semantic models and vocabularies](#semantic-models-and-vocabularies) |
 | `missing_tables` | | what a semantic model's table the database does not hold does: `refuse` (the default) stops the server, naming it; `leave_out` takes that dataset (and its relationships) out of the model, named by `--check` and in the server's log — for a model made from a project ahead of the database (a dbt model not built yet) |
 
@@ -129,7 +129,8 @@ connections:
 Both are served **as written** — the server never rewords them. A document is read when an agent asks for it, so an
 edited or added document is served without a restart. Every path must exist when the server starts, and no two
 documents of one scope may share a name: a file is named by its own name, a folder's files as
-`<folder>/<path inside it>`.
+`<folder>/<path inside it>`. Documents kept in a git repository the server does not hold beside its configuration are
+read [from the repository](#repositories).
 
 ## Skills
 
@@ -178,6 +179,69 @@ and served as written with the rest. No two skills of one scope may share a name
 folder it refers to. Everything is served **as written**, and read when an agent asks for it, so an edited or added
 skill is served without a restart — and a skill broken after the start is named in the answer, until it is fixed.
 
+## Repositories
+
+Context documents and skills are often kept in a repository of their own, and a server deployed from another one —
+its configuration's — does not hold them on disk. The server then fetches them itself: declare the repository once,
+in `repositories` at the top of the file, and name a path inside it wherever a file or folder goes in `context` or
+`skills`.
+
+```yaml
+repositories:
+  - name: kit
+    url: https://github.com/acme/analytics-kit.git
+    ref: main
+    token_env: KIT_TOKEN                # a private repository: the variable holding a token that may read it
+
+context:
+  - handbook/                           # on disk, as before
+  - { repository: kit, path: docs/glossary.md }
+
+connections:
+  - name: shop
+    engine: duckdb
+    path: data/shop.duckdb
+    readable: ["marts.*"]
+    context: [{ repository: kit, path: docs/shop }]
+    skills: [{ repository: kit, path: skills }]
+```
+
+| Key | Default | What |
+|---|---|---|
+| `name` | | how `context` and `skills` entries name it: lowercase letters, digits, `-` and `_` |
+| `url` | | the repository's address: `https://` (`http://` only to this machine), with no credentials in it — neither a user and password nor a query |
+| `ref` | the repository's default branch | a branch, a tag, or a commit by its full hash; a name that is both a tag and a branch means the tag, as git reads it |
+| `token_env` | | the variable holding a token that may read the repository — a GitHub or GitLab access token, for example; left out for a public repository |
+| `token_user` | `x-access-token` | the user name the token is sent with — what GitHub expects; another host may want its own (Bitbucket: `x-token-auth`) |
+| `refresh_minutes` | `10` | how often the server looks for a new commit, `0`–`1440`; `0` fetches only at start |
+
+An entry in a repository is a mapping of `repository` (the name declared) and `path` (a file or a folder inside it,
+as `docs/shop` — names joined by `/`, none of them empty, `.` or `..`; `.`, the default, is the whole repository, its
+documents then named `<repository name>/…`). A file or folder is named as it would be on disk: `docs/shop/rules.md` is
+served as `shop/rules.md`. A file whose name is not UTF-8 is left out, as no agent could ask for it.
+
+- **At start** every repository is fetched — a single commit: the list of its files' names, and the files themselves
+  only under the paths the configuration names — and everything in it is checked as it would be on disk; a repository
+  that cannot be fetched, a path it does not hold, a skill breaking the format stops the server, naming it, with every
+  other problem of the file. `--check --offline` fetches nothing, and needs no git.
+- **Kept fresh.** Every `refresh_minutes` the server looks for a new commit of the `ref`, in the background — no
+  answer waits for it. A new commit is served only when it passes the same checks as at start; when it does not, or the
+  repository cannot be reached, the commit served stays, and `list_connections` says what went wrong (`problem`), as
+  the server's log does. A `ref` that is a commit never changes, so it is never looked for again. When the server is
+  stopped, its copies are removed.
+- **Where it came from.** `get_context` and `get_skill` answer the repository (`fetched_from`) and the `commit` of what
+  they serve; `list_connections` lists each repository with the commit served, when it was fetched and last checked.
+- **The token** is read from its variable and sent to the repository's own address only — in a header, never on a
+  command line, in a log or an answer. No redirect is followed, to another address or the same: a repository that moved
+  needs its new URL. Write the token in the URL — as a user and password, or in its query — and the server does not
+  start; write it where its variable's name goes, and no error repeats it.
+- **Nothing in a repository reaches outside its copy**: a symbolic link is served as a file holding its target's path,
+  never followed; no hook runs. No git configuration of the machine or the user is used, and of the server's
+  environment only `PATH`, the proxy variables (for `https://` only) and those naming certificates reach git
+  ([running it](running.md#repositories)).
+
+Fetching needs the `git` program, 2.31 or newer — the [image](running.md#the-image) has it.
+
 ## Semantic models and vocabularies
 
 | Key | Where | What |
@@ -203,5 +267,5 @@ vocabulary's keys.
 
 ## Planned
 
-Read from later milestones, each documented here when it works: `query_sets` (saved, parameterised SQL); `context`,
-`skills`, `semantic_models` and `vocabularies` read straight from a git repository.
+Read from later milestones, each documented here when it works: `query_sets` (saved, parameterised SQL);
+`semantic_models` and `vocabularies` read straight from a git repository.

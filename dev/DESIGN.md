@@ -76,9 +76,9 @@ whether there were more; stop after `seconds`), `tables()` and `columns()`.
   code that writes a table, an owner, a refresh schedule) travels to agents as it is.
 
 Ossie's dialects are `ANSI_SQL`, Snowflake, BigQuery, Databricks and BI languages — not ClickHouse, PostgreSQL,
-MySQL or DuckDB. So: an expression is written in ANSI SQL and translated to the connection's dialect with
-sqlglot; where that isn't enough, an engine-specific expression rides in a `custom_extensions` entry of our own
-vendor name. (An open question until the first real model is written — `DECISIONS.md` then.)
+MySQL or DuckDB. Decided (`DECISIONS.md`, "A model's expression runs as written"): an `ANSI_SQL` expression is read in
+the dialect of the connection its model belongs to and runs as written, never translated; a model for several engines
+writes a variant per engine in this server's own `custom_extensions` entry. Built with the metrics (milestone 6).
 
 **Your own metadata** (`DECISIONS.md`, "Your own metadata"). Anything a team adds — categories, a layer, links to the
 code that writes a table, owners — goes in `custom_extensions` under the team's `vendor_name`, its `data` written as a
@@ -190,9 +190,27 @@ at two levels — the whole server (top of the configuration) and each connectio
   read by `get_context` (as written, in parts by `offset` when longer than an answer). Read from disk on every call — an
   edit is served without a restart. A document is reached only by a name the listing gives; no path an agent writes is
   ever opened.
-- **Later**: a `context` entry naming a git repository (URL, ref, path; a token by variable name), fetched by the server
-  — for a deployed server whose configuration repository does not hold the documents. Skills (`SKILL.md` folders) the
-  same way, with their own tools.
+- **`skills`** (milestone 3) — folders in the Agent Skills format: a `SKILL.md` (frontmatter `name`, `description`)
+  and the files it refers to beside it. `list_skills` (name, description), `get_skill` (the `SKILL.md`, the list of its
+  folder's text files, any of them by a listed name). Checked at start by the format's rules, read anew on every call
+  (`skills.py`, `DECISIONS.md`, "Skills").
+- **Repositories** (milestone 3) — a `context` or `skills` entry may be `{repository, path}`, naming a repository
+  declared in `repositories:` (URL, ref, `token_env`, `refresh_minutes`). `repositories.py`: at start each repository
+  is fetched by the `git` program — one commit, its trees, then only the named paths checked out into a folder of
+  their own (`<cache>/<repo>-…/<n>/<repo>`, so a path `.` is named after the repository); a background thread
+  re-fetches every `refresh_minutes` and swaps in a new commit's copy only when the configuration's checks of every
+  scope it serves pass (`Repository.check`, set by `config._fetch`); the copy before stays until the next swap, for a
+  reader still on it. git's environment is built from nothing (`_git`): settings by `GIT_CONFIG_COUNT`, the token as
+  an `Authorization` header there, no redirects, https only, `core.symlinks=false`; proxies for https only; git's
+  output read as UTF-8 with replacement (a server's error page, a file name may be anything). A refresh never raises
+  (the thread outlives anything a fetch meets); each path is looked up on its own (`ls-tree` with a folder and a path
+  inside it lists only the inner one). SIGTERM removes the copies and exits at once (over stdio a normal exit would
+  wait for the thread reading standard input). A tool reads each scope's listing once per call — a swap between two
+  looks would find a name and then lose it. `get_context` / `get_skill` answer `fetched_from` and `commit`;
+  `list_connections` lists the repositories with their state.
+- **A variable's name that does not look like one** (`A_NAME_LIKE_THIS`) is never repeated in a message — a token
+  pasted where its variable's name goes (`token_env`, `password_env`, `--token-env`) stays out of errors and logs
+  (`files.variable`).
 
 ## Populations, filters and metric definitions — the metrics layer
 
@@ -308,7 +326,8 @@ Built (2026-10-24, ahead of milestones 8–9, for a company's deployment behind 
 
 - **Documentation**: `docs/` is the single source of the public documentation. A site is built from it with Astro +
   Starlight (`website/`, the pattern of the author's detectkit: a `sync-docs` script imports `docs/` at build time,
-  served by nginx from an image) at `semantic-warehouse.pipelab.dev` (proposed).
+  served by nginx from an image) at `swm.pipelab.dev` (the author, 2026-10-24: short, no dash — as detectkit's
+  `dtk.pipelab.dev`).
 - **Distribution**: the package on PyPI (`uvx semantic-warehouse-mcp`); a container image on GHCR
   (`ghcr.io/alexeiveselov92/semantic-warehouse-mcp`); the site's image beside it (`ghcr.io/alexeiveselov92/semantic-warehouse-mcp-web`).
 - **Hosting (the author's own)**: the author's server is run as code in `alexeiveselov92/pipelab` — Docker Compose

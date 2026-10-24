@@ -5,7 +5,9 @@ The server runs one of two ways: over **stdio**, started by one person's agent o
 it and reaches every database before it answers anything.
 
 It is a Python package on PyPI — `uvx semantic-warehouse-mcp …` runs it without installing anything else, `pip install
-semantic-warehouse-mcp` installs it (Python 3.12 or newer) — and a [container image](#the-image).
+semantic-warehouse-mcp` installs it (Python 3.12 or newer) — and a [container image](#the-image). Context and skills
+[read from a repository](configuration.md#repositories) need the `git` program as well (2.31 or newer), which the image
+holds.
 
 ```text
 semantic-warehouse-mcp --config <file> [--check [--offline]]
@@ -53,6 +55,15 @@ An agent connects with the endpoint and the header — Claude Code:
 claude mcp add --transport http warehouse https://mcp.example.com/mcp --header "Authorization: Bearer $SWM_TOKEN"
 ```
 
+### Repositories
+
+A server reading context or skills [from a repository](configuration.md#repositories) keeps its copies in a temporary
+folder (`TMPDIR`, or `/tmp`) and removes them when it ends — at the end of its input, or stopped by `SIGTERM`. It says
+in its log (standard error) when it serves a new commit, and why it does not when a look for one goes wrong. Of the
+server's environment only these reach git: `PATH`; behind a proxy, the usual variables (`HTTPS_PROXY`, `HTTP_PROXY`,
+`ALL_PROXY`, `NO_PROXY`, in either case) — for an `https://` repository only, so a token never crosses a proxy in clear
+text; and a certificate authority's (`SSL_CERT_FILE`, `SSL_CERT_DIR`, `GIT_SSL_CAINFO`, `GIT_SSL_CAPATH`).
+
 ### Behind a gateway
 
 An organisation's MCP gateway (signing people in, deciding who sees which servers) usually reaches its backends with
@@ -61,8 +72,8 @@ the gateway, not the person.
 
 ## The image
 
-The server's container image holds the package and its locked dependencies, runs as user `10001` without rights, and
-works on a read-only root filesystem with a writable `/tmp`. It serves over HTTP on port 8000, reading
+The server's container image holds the package and its locked dependencies and `git`, runs as user `10001` without
+rights, and works on a read-only root filesystem with a writable `/tmp` (where it keeps the copies of repositories). It serves over HTTP on port 8000, reading
 `/config/config.yaml` and the token from `SWM_TOKEN`:
 
 ```sh

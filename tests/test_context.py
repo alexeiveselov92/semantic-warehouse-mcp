@@ -154,3 +154,18 @@ def test_two_documents_with_one_name_are_named(team, shop_path):
     )
     with pytest.raises(ConfigError, match="two documents are named 'kitchen/rules.md'"):
         load(write_config(shop_path.parent, body))
+
+
+async def test_a_name_longer_than_the_answer_is_cut_and_says_so(team, shop_path):
+    folder = shop_path.parent / "kitchen"
+    for number in range(6):
+        folder = folder / ("x" * 200 + str(number))
+    folder.mkdir(parents=True)
+    (folder / "deep.md").write_text("deep")
+    name = "kitchen/" + "/".join("x" * 200 + str(number) for number in range(6)) + "/deep.md"
+    async with Client(build_server(team(answer_characters=1000))) as client:
+        result = await client.call_tool("get_context", {"name": name})
+    assert len(result.content[0].text) <= 1000
+    answer = json.loads(result.content[0].text)
+    assert answer["truncated"] is True
+    assert "long_values" in answer["truncated_by"]

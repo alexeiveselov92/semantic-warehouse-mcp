@@ -90,7 +90,7 @@ def read(folder: pathlib.Path) -> Skill:
 
 def frontmatter(text: str) -> str | None:
     """The YAML between a file's opening `---` line and the next one, or None when it has none."""
-    lines = text.splitlines(keepends=True)
+    lines = text.removeprefix("\ufeff").splitlines(keepends=True)  # a byte order mark before it is no part of it
     if not lines or lines[0].rstrip() != "---":
         return None
     for index, line in enumerate(lines[1:], start=1):
@@ -108,6 +108,8 @@ def files_of(skill: Skill) -> tuple[dict[str, pathlib.Path], list[str]]:
         inside = file.relative_to(skill.folder)
         if not file.is_file() or any(part.startswith(".") for part in inside.parts) or inside.as_posix() == SKILL_FILE:
             continue
+        if not files.nameable(inside.as_posix()):
+            continue  # a name that is not UTF-8 could be listed, but never asked for
         try:
             text_of(file, file)
         except SkillError:

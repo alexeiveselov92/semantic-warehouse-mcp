@@ -148,6 +148,27 @@ def redact(text: str) -> str:
     return _CREDENTIALS.sub(r"\1…@", text)
 
 
+def nameable(name: str) -> bool:
+    """Whether a file's name can be sent to an agent and asked for back: one that is not UTF-8 cannot."""
+    try:
+        name.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+# A variable's name as people write one. Under an `_env` key anything else may be a secret pasted in its place.
+VARIABLE_NAME = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+
+
+def variable(name: str, where: str) -> str:
+    """How a message names a variable: by its name — unless that does not look like one (A_NAME_LIKE_THIS), when it
+    may be a secret pasted in its place, and is never repeated: then by `where` it is written."""
+    if VARIABLE_NAME.match(name):
+        return name
+    return f"named in {where} (not repeated: it does not look like a variable's name, and may be a secret)"
+
+
 # A value under one of these keys may be a secret written by mistake: an error never repeats it.
 SECRET_KEY = re.compile(r"(_env$|password|secret|token|url)", re.IGNORECASE)  # a URL may hold a password
 
@@ -157,11 +178,14 @@ def describe(error: ValidationError, data: Any, model: type[BaseModel]) -> list[
     file's root, for the keys known where an unknown one is written."""
     lines = []
     for item in error.errors():
-        where = location(item["loc"], data)
+        loc = _without_tags(item["loc"], data)
+        if loc is None:
+            continue
+        where = location(loc, data)
         kind = item["type"]
         if kind == "extra_forbidden":
-            key = str(item["loc"][-1])
-            known = _known_keys(model, item["loc"][:-1])
+            key = str(loc[-1])
+            known = _known_keys(model, loc[:-1])
             hint = difflib.get_close_matches(key, known, n=1)
             suffix = f" — did you mean {hint[0]!r}?" if hint else (f" (known: {', '.join(known)})" if known else "")
             lines.append(f"{where}: unknown key{suffix}")
@@ -169,7 +193,7 @@ def describe(error: ValidationError, data: Any, model: type[BaseModel]) -> list[
             lines.append(f"{where}: required")
         else:
             message = item["msg"][0].lower() + item["msg"][1:]
-            secret = any(isinstance(step, str) and SECRET_KEY.search(step) for step in item["loc"])
+            secret = any(isinstance(step, str) and SECRET_KEY.search(step) for step in loc)
             got = item["input"]
             if secret:
                 lines.append(f"{where}: {message}")
@@ -178,6 +202,36 @@ def describe(error: ValidationError, data: Any, model: type[BaseModel]) -> list[
             else:
                 lines.append(f"{where}: {message} (got {got!r})")
     return lines
+
+
+# How pydantic names the kind of value an entry that may be one of several was read as (`str | InRepository`).
+_PLAIN_TAGS = {"str", "int", "float", "bool", "list", "dict"}
+
+
+def _without_tags(loc: tuple[Any, ...], data: Any) -> tuple[Any, ...] | None:
+    """An error's place without the steps pydantic adds for an entry that may be of several kinds (`str`, a model's
+    name) — or None when the error is of a kind the entry was plainly not meant as: a mapping read as text, text read
+    as a mapping. Keys of a file are lowercase, so a step not in the data and named by a type is such a step."""
+    kept: list[Any] = []
+    node = data
+    for step in loc:
+        if isinstance(step, str) and not (isinstance(node, dict) and step in node):
+            if step in _PLAIN_TAGS:
+                if isinstance(node, (dict, list)):
+                    return None
+                continue
+            if step[:1].isupper():
+                if not isinstance(node, dict):
+                    return None
+                continue
+        kept.append(step)
+        if isinstance(node, dict):
+            node = node.get(step)
+        elif isinstance(node, list) and isinstance(step, int) and step < len(node):
+            node = node[step]
+        else:
+            node = None
+    return tuple(kept)
 
 
 def _holds_secret(value: Any) -> bool:
@@ -206,11 +260,18 @@ def _known_keys(model: type[BaseModel], loc: tuple[Any, ...]) -> list[str]:
             return []
         annotation = field.annotation
         a_mapping_key = getattr(annotation, "__origin__", None) is dict
-        args = getattr(annotation, "__args__", ())
-        current = next((a for a in (annotation, *args) if isinstance(a, type) and issubclass(a, BaseModel)), None)
+        current = next((a for a in _types(annotation) if isinstance(a, type) and issubclass(a, BaseModel)), None)
         if current is None:
             return []
     return list(current.model_fields)
+
+
+def _types(annotation: Any) -> list[Any]:
+    """The types inside an annotation, at any depth: a list of text or a mapping holds the mapping's model."""
+    found = [annotation]
+    for inner in getattr(annotation, "__args__", ()):
+        found += _types(inner)
+    return found
 
 
 def location(loc: tuple[Any, ...], data: Any) -> str:

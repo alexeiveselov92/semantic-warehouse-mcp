@@ -152,10 +152,10 @@ def test_the_example_configuration_holds(tmp_path):
     )
     config = load(tmp_path / "config.example.yaml")
     assert set(config.connections) == {"shop"}
-    assert config.connections["shop"].context == ((tmp_path / "context").resolve(),)
+    assert [place.local for place in config.connections["shop"].context] == [(tmp_path / "context").resolve()]
     assert [model.name for model in config.connections["shop"].models] == ["shop"]
     assert set(config.vocabularies) == {"acme"}
-    assert config.skills == ((tmp_path / "skills").resolve(),)
+    assert [place.local for place in config.skills] == [(tmp_path / "skills").resolve()]
 
 
 OFFLINE = """

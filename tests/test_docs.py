@@ -41,10 +41,18 @@ def _keys(model: type[BaseModel]) -> set[str]:
     keys = set()
     for name, field in model.model_fields.items():
         keys.add(name)
-        for inner in (field.annotation, *getattr(field.annotation, "__args__", ())):
+        for inner in _inner(field.annotation):
             if isinstance(inner, type) and issubclass(inner, BaseModel):
                 keys |= _keys(inner)
     return keys
+
+
+def _inner(annotation) -> list:
+    """The types inside an annotation, at any depth: a list of either a text or a mapping holds the mapping."""
+    found = [annotation]
+    for inner in getattr(annotation, "__args__", ()):
+        found += _inner(inner)
+    return found
 
 
 def test_every_configuration_key_has_its_entry_in_the_guide():

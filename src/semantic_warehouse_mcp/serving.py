@@ -15,7 +15,7 @@ from mcp.server.mcpserver import MCPServer
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from . import __version__
+from . import __version__, files
 
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
 HEALTH = "/health"
@@ -43,7 +43,8 @@ def token_of(variable: str | None, host: str) -> str | None:
         return None
     token = os.environ.get(variable)
     if not token:
-        raise HttpProblem(f"the variable {variable} is not set (or empty): it holds the token every request must carry")
+        named = files.variable(variable, "--token-env")
+        raise HttpProblem(f"the variable {named} is not set (or empty): it holds the token every request must carry")
     return token
 
 

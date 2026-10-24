@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import os
+import signal
 import sys
 import time
 
@@ -12,7 +13,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
-from . import __version__, answers, context, guard, semantic, serving, skills
+from . import __version__, answers, context, guard, repositories, semantic, serving, skills
 from .adapters import AdapterError, TimedOut
 from .config import Config, ConfigError, Connection, load
 from .semantic import Model
@@ -75,7 +76,10 @@ def build_server(config: Config | None = None) -> MCPServer:
         return {
             "name": "semantic-warehouse-mcp",
             "version": __version__,
-            "status": "pre-alpha: tables, read-only queries, semantic models in Apache Ossie; metrics are being built",
+            "status": (
+                "pre-alpha: tables, read-only queries, semantic models in Apache Ossie, context and skills; metrics "
+                "are being built"
+            ),
             "read_only": True,
         }
 
@@ -113,13 +117,39 @@ def build_server(config: Config | None = None) -> MCPServer:
             answer["context"] = list(context_documents(None))
         if server_skills:
             answer["skills"] = list(skills_of(None))
+        if config and config.repositories:
+            answer["repositories"] = [repository_item(repository) for repository in config.repositories.values()]
         return answers.render(answer, "connections", items, answer_characters, "")
+
+    def repository_item(repository: repositories.Repository) -> dict:
+        item: dict = {"name": repository.name, "url": repository.url}
+        if repository.ref:
+            item["ref"] = repository.ref
+        if repository.current is not None:
+            item["commit"] = repository.current.commit
+            item["fetched_at"] = repository.current.fetched_at.isoformat(timespec="seconds")
+        if repository.checked_at is not None:
+            item["checked_at"] = repository.checked_at.isoformat(timespec="seconds")
+        item["refresh_minutes"] = repository.refresh_minutes
+        if repository.problem:
+            item["problem"] = repository.problem
+        return item
+
+    def provenance(places: tuple[repositories.Place, ...], path) -> dict:
+        """Where a served file comes from, when it is a repository's: its name and the commit."""
+        for place in places:
+            copy = place.repository.copy_of(path) if place.repository is not None else None
+            if copy is not None:
+                return {"fetched_from": place.repository.name, "commit": copy.commit}
+        return {}
+
+    def context_places(connection: str | None) -> tuple[repositories.Place, ...]:
+        return server_context if connection is None else connections[connection].context
 
     def context_documents(connection: str | None) -> dict:
         """A scope's documents by name — the whole server's (None) or a connection's — read anew from disk."""
-        paths = server_context if connection is None else connections[connection].context
         try:
-            return context.documents(paths)
+            return context.documents(repositories.current(context_places(connection)))
         except context.ContextError as error:
             raise ToolError(f"The context documents cannot be read: {error}") from error
 
@@ -150,7 +180,8 @@ def build_server(config: Config | None = None) -> MCPServer:
         scopes = [connection] if connection is not None else [None, *connections]
         if connection is not None:
             pick(connection)
-        found = [(scope, context_documents(scope)[name]) for scope in scopes if name in context_documents(scope)]
+        listed = {scope: context_documents(scope) for scope in scopes}  # once each: a refresh may swap a copy between
+        found = [(scope, listed[scope][name]) for scope in scopes if name in listed[scope]]
         if not found:
             raise ToolError(f"No context document named {name!r}. list_context shows them.")
         if len(found) > 1 and found[0][0] is not None:
@@ -163,15 +194,18 @@ def build_server(config: Config | None = None) -> MCPServer:
         answer: dict = {"name": name}
         if scope is not None:
             answer["connection"] = scope
+        answer |= provenance(context_places(scope), path)
         return answers.in_parts(answer, text, offset, answer_characters)
 
     # --- skills -------------------------------------------------------------------------------------------------------
 
+    def skill_places(connection: str | None) -> tuple[repositories.Place, ...]:
+        return server_skills if connection is None else connections[connection].skills
+
     def skills_of(connection: str | None) -> dict[str, skills.Skill]:
         """A scope's skills by name — the whole server's (None) or a connection's — read anew from disk."""
-        paths = server_skills if connection is None else connections[connection].skills
         try:
-            return skills.skills(paths)
+            return skills.skills(repositories.current(skill_places(connection)))
         except skills.SkillError as error:
             raise ToolError(f"The skills cannot be read: {error}") from error
 
@@ -203,7 +237,8 @@ def build_server(config: Config | None = None) -> MCPServer:
         scopes = [connection] if connection is not None else [None, *connections]
         if connection is not None:
             pick(connection)
-        found = [(scope, skills_of(scope)[name]) for scope in scopes if name in skills_of(scope)]
+        listed = {scope: skills_of(scope) for scope in scopes}  # once each: a refresh may swap a copy between
+        found = [(scope, listed[scope][name]) for scope in scopes if name in listed[scope]]
         if not found:
             raise ToolError(f"No skill named {name!r}. list_skills shows them.")
         if len(found) > 1 and found[0][0] is not None:
@@ -230,15 +265,19 @@ def build_server(config: Config | None = None) -> MCPServer:
         if scope is not None:
             answer["connection"] = scope
         answer["file"] = path.relative_to(skill.folder).as_posix()
+        answer |= provenance(skill_places(scope), path)
         if path == skill.file:
-            answer["files"] = list(inside)
+            shown = {"files": list(inside), "not_text": not_text}
+            while len(answers.dumps({**answer, **shown})) > answer_characters // 2 and any(shown.values()):
+                longer = max(shown, key=lambda key: len(shown[key]))  # the text keeps half: the longer list is cut
+                shown[longer] = shown[longer][: len(shown[longer]) * 9 // 10]
+            answer["files"] = shown["files"]
             if not_text:
-                answer["not_text"] = not_text
-            listed = len(answer["files"])
-            while len(answers.dumps(answer)) > answer_characters // 2 and answer["files"]:  # the text keeps half
-                answer["files"] = answer["files"][: len(answer["files"]) * 9 // 10]
+                answer["not_text"] = shown["not_text"]
+            if (len(shown["files"]), len(shown["not_text"])) != (len(inside), len(not_text)):
+                also = f" and {len(shown['not_text'])} of its {len(not_text)} not text" if not_text else ""
                 answer["note"] = (
-                    f"Only the first {len(answer['files'])} of the skill's {listed} files fit in the answer "
+                    f"Only the first {len(shown['files'])} of the skill's {len(inside)} files{also} fit in the answer "
                     f"({answer_characters} characters)."
                 )
         return answers.in_parts(answer, text, offset, answer_characters)
@@ -643,11 +682,17 @@ def main(argv: list[str] | None = None) -> None:
         for vendor, declared in config.vocabularies.items():
             print(f"  - vocabulary {vendor} ({declared.file}): {len(declared.keys)} keys")
         print_team_files("  - for every connection, ", config.context, config.skills)
+        for repository in config.repositories.values():
+            fetched = f"at {repository.current.commit[:12]}" if repository.current else "not fetched"
+            print(f"  - {repository.described}: {fetched}; {', '.join(sorted(set(repository.paths)))}")
         return
     for connection in config.connections.values():  # said where the server's log is read
         if connection.left_out:
             gone = ", ".join(connection.left_out)
             print(f"semantic-warehouse-mcp: {connection.name}: left out, no table of theirs: {gone}", file=sys.stderr)
+    if config.repositories:
+        signal.signal(signal.SIGTERM, stopped)
+        repositories.keep_fresh(list(config.repositories.values()))
     if not args.http:
         build_server(config).run("stdio")
         return
@@ -658,8 +703,19 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(2)
 
 
+def stopped(number: int, frame: object) -> None:
+    """SIGTERM: the copies of repositories removed, then out at once — over stdio a normal exit would wait for the
+    thread reading standard input, which a stopped server never closes. Over HTTP, after uvicorn has finished."""
+    repositories.remove_copies()
+    os._exit(128 + number)
+
+
 def print_team_files(prefix: str, documents: tuple, skill_folders: tuple) -> None:
-    """What `--check` says of a scope's context documents and skills: how many documents, which skills."""
+    """What `--check` says of a scope's context documents and skills: how many documents, which skills — those in a
+    repository only once it is fetched."""
+    if any(place.repository is not None and place.repository.current is None for place in documents + skill_folders):
+        return
+    documents, skill_folders = repositories.current(documents), repositories.current(skill_folders)
     if documents:
         count = len(context.documents(documents))
         print(f"{prefix}context: {count} document{'' if count == 1 else 's'}")

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pathlib
 
+from . import files
+
 # What counts as a document in a context folder; anything else there (and hidden files and folders) is left alone.
 DOCUMENT_SUFFIXES = {".md", ".markdown", ".txt"}
 
@@ -18,12 +20,13 @@ def documents(paths: tuple[pathlib.Path, ...]) -> dict[str, pathlib.Path]:
     found: dict[str, pathlib.Path] = {}
     for path in paths:
         if path.is_file():
-            entries = [(path.name, path)]
+            entries = [(path.name, path)] if files.nameable(path.name) else []
         elif path.is_dir():
             entries = [
                 (f"{path.name}/{file.relative_to(path).as_posix()}", file)
                 for file in sorted(path.rglob("*"))
                 if file.is_file()
+                and files.nameable(file.relative_to(path).as_posix())
                 and file.suffix.lower() in DOCUMENT_SUFFIXES
                 and not any(part.startswith(".") for part in file.relative_to(path).parts)
             ]

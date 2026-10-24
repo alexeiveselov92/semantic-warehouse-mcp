@@ -24,8 +24,9 @@ uv run semantic-warehouse-mcp --config examples/config.example.yaml --check
 
 The first command builds `examples/data/shop.duckdb`: half a year of a made-up online shop — customers, paid orders,
 the raw events of its site. The second reads [the example configuration](../examples/config.example.yaml), reaches the
-database, checks the shop's [semantic model](../examples/semantic/shop.yaml) and the
-[vocabulary](../examples/vocabulary/acme.yaml) of its own metadata, and says it is fine — or names what is wrong
+database, checks the shop's [semantic model](../examples/semantic/shop.yaml), the
+[vocabulary](../examples/vocabulary/acme.yaml) of its own metadata, its [context document](../examples/context/shop.md)
+and its team's [skill](../examples/skills/revenue-questions/SKILL.md), and says it is fine — or names what is wrong
 ([configuration](reference/configuration.md), [semantic models](reference/semantic-models.md)).
 
 ## 3. Connect an MCP client
@@ -58,7 +59,8 @@ Start a new session in the client and ask about the data, for instance:
 > What was the shop's revenue net of refunds in March 2026, by currency?
 
 The agent finds the data in the shop's semantic model (`list_datasets`, `describe_dataset`) and how revenue is defined
-(`describe_metric`), then runs a query (`run_query`). Every answer carries the SQL exactly as it ran and the time it
+(`describe_metric`), reads how the team answers such a question (`list_skills`, `get_skill` — the skill and the
+grouping rules beside it), then runs a query (`run_query`). Every answer carries the SQL exactly as it ran and the time it
 took, so you can check the number yourself:
 
 ```bash

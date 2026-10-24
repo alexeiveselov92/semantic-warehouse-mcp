@@ -24,7 +24,10 @@ configuration gives one), `instructions` (the team's, as written), `readable` (t
 read), `large_tables` (each `table` with the column a query must bound, `bound_by`), `limits` (`rows` and `seconds` per
 query), `semantic_models` (the names of its [semantic models](semantic-models.md)), `context` (the names of its
 context documents) and `skills` (the names of its skills). Beside the list: the `instructions`, `context` and `skills`
-for the whole server. Reads the configuration only — it never reaches a database.
+for the whole server, and the [repositories](configuration.md#repositories) they are read from — each one's `name`,
+`url`, `ref`, the `commit` served, `fetched_at` (when that commit was fetched), `checked_at` (when the repository was
+last reached), `refresh_minutes`, and `problem` when the last look for a new commit went wrong (the commit served
+stays). Reads the configuration only — it never reaches a database.
 
 ```json
 {"connections":[{"name":"shop","engine":"duckdb","description":"A made-up online shop.",
@@ -154,7 +157,9 @@ The context documents the team wrote for agents ([configuration](configuration.m
 
 One context document, exactly as written. Takes `name` (as `list_context` shows it), `connection` (for a connection's
 document; left out, the whole server's — or the only document of that name), and `offset` (default 0). Answers `name`,
-`connection`, `characters` (the whole document's), `offset`, and `text`. A document longer than an answer can hold
+`connection`, `fetched_from` and `commit` (the repository's name and the commit, for a document
+[read from a repository](configuration.md#repositories)),
+`characters` (the whole document's), `offset`, and `text`. A document longer than an answer can hold
 comes in parts: `next_offset` says where the next part starts — call again with it. Only listed documents are served:
 no other file can be named.
 
@@ -174,9 +179,11 @@ skill of the whole server.
 One skill, exactly as written. Takes `name` (as `list_skills` shows it), `connection` (for a connection's skill; left
 out, the whole server's — or the only skill of that name), `file` (optional: a file of the skill's folder, as `files`
 lists it), and `offset` (default 0). Answers `name`, `connection`, `file` (`SKILL.md` unless another is asked for),
-`characters` (the whole file's), `offset`, and `text` — the whole file, its frontmatter too. With `SKILL.md` it also
+`fetched_from` and `commit` (the repository's name and the commit, for a skill
+[read from a repository](configuration.md#repositories)), `characters` (the whole file's), `offset`, and `text` — the whole file, its frontmatter too. With `SKILL.md` it also
 answers `files`: every other file of the skill's folder an agent may read — its references, scripts, templates — and
 `not_text`: the files that are not text (images, archives), which are listed but not served. A file longer than an
 answer can hold comes in parts: `next_offset` says where the next part starts — call again with it. Only listed files
-are served: no other path can be named; hidden files and folders (`.git`) are neither listed nor served. A skill with
-more files than half an answer can hold lists the first that fit, and its `note` says how many there are.
+are served: no other path can be named; hidden files and folders (`.git`), and files whose name is not UTF-8, are
+neither listed nor served. A skill whose lists of files take more than half an answer lists the first that fit, and its
+`note` says how many there are.

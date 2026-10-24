@@ -59,16 +59,20 @@ The engine production work runs on (the author, 2026-10-24) — moved up from "t
       a reading naming no table. ✅ 2026-10-24 — the resolved tree asked for (`run_passes = 1`: 26 of 27 analyst
       queries resolve on 22.11), an unresolved one refused, settings a server does not know not sent; checked live.
 - [x] Beyond the plan, from the live runs: `missing_tables: leave_out` for a model ahead of its database. ✅ 2026-10-24
-- [ ] Skills folders (`list_skills`, `get_skill`); context and skills read straight from a git repository.
-- [ ] The dialect question settled (ANSI SQL translated by sqlglot, engine variants in `custom_extensions`) and
-      written in `DECISIONS.md`.
+- [x] Skills folders (`list_skills`, `get_skill`); context and skills read straight from a git repository.
+      ✅ 2026-10-24 — the Agent Skills format checked at start, a skill's files served by listed names; repositories
+      named, fetched by git (only the named paths), refreshed in the background, a commit that breaks the checks never
+      served; live from GitHub, in the image too; real Claude Code followed a skill and its file.
+- [x] The dialect question settled and written in `DECISIONS.md`. ✅ 2026-10-24 — the author: an expression runs as
+      written in its connection's dialect, never translated (sqlglot's translation measured not neutral); variants per
+      engine in our own `custom_extensions`; built with the metrics (milestone 6).
 
 ## Milestone 4. The docs site — 1 session
 
 - [ ] `website/` — Astro + Starlight built from `docs/`, the author's detectkit pattern (`../detectkit/website`: the
       `sync-docs` script importing `docs/`, the nginx Dockerfile, the `website.yml` workflow pushing the image to GHCR and
       sending `repository_dispatch` to pipelab).
-- [ ] In pipelab (`../pipelab`, under its own rules): the site at `semantic-warehouse.pipelab.dev` — a compose service
+- [ ] In pipelab (`../pipelab`, under its own rules): the site at `swm.pipelab.dev` — a compose service
       behind Traefik and its `deploy-*.yml`, as detectkit's site is served.
 - [ ] The guide as it stands published there; from now on every milestone's pages go live with it.
 
@@ -85,6 +89,9 @@ The engine production work runs on (the author, 2026-10-24) — moved up from "t
       population with their placement (refused when unbound), metric kinds and roll-up rules, templates with the layer's
       macros, presets, scenarios run in tests. Its schema published; the registry of `dev/RESEARCH.md` expressed in it
       without loss as the design's first check.
+- [ ] Expressions in their connection's dialect (`dev/DECISIONS.md`, "A model's expression runs as written"): every
+      expression parsed at start in its connection's dialect, one that does not parse stopping the server; a variant
+      per engine in this server's own `custom_extensions` entry, chosen before `ANSI_SQL`.
 - [ ] `query_metric`: SQL compiled from the model (metric, dimensions, filters, a time range, joins along
       relationships), run through the guard; its SQL shown.
 - [ ] Importers of metrics from dbt's semantic layer — Ossie's converters where they do the job.

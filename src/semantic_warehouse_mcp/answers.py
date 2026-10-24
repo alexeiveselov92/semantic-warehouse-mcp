@@ -172,8 +172,10 @@ def in_parts(answer: dict[str, Any], text: str, offset: int, max_characters: int
         if offset + size < len(text):
             part["next_offset"] = offset + size
         rendered = dumps(part)
-        if len(rendered) <= max_characters or size <= 1:
+        if len(rendered) <= max_characters:
             return rendered
+        if size == 0:  # the answer is too long with no text at all: its longest values are cut, and it says so
+            return _fit(part, max_characters)
         size = size * 9 // 10
 
 

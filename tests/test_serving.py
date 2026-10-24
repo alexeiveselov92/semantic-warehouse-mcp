@@ -111,6 +111,17 @@ def test_a_server_others_reach_is_never_served_without_a_token(shop_config, caps
     assert stopped.value.code == 2 and "the variable SWM_SERVING_TOKEN is not set" in capsys.readouterr().err
 
 
+def test_a_token_written_for_its_variable_is_never_repeated(shop_config, capsys, monkeypatch):
+    config = shop_config()
+    pasted = "sk_live_aB3dE5fG7hJ9kL1mN3p"
+    monkeypatch.setattr(serving.uvicorn, "run", lambda *args, **kwargs: pytest.fail("served without a token"))
+    with pytest.raises(SystemExit) as stopped:
+        main(["--config", config.source, "--http", "--host", "0.0.0.0", "--token-env", pasted])
+    said = capsys.readouterr().err
+    assert stopped.value.code == 2 and "the variable named in --token-env (not repeated" in said
+    assert pasted not in said
+
+
 def test_a_path_that_is_not_one_is_refused():
     with pytest.raises(serving.HttpProblem, match="a path starting with /"):
         serving.serve(build_server(), host="127.0.0.1", port=1, path="/health", token_env=None)

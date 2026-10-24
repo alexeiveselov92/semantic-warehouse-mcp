@@ -11,9 +11,10 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from . import files, guard, semantic, skills, vocabulary
+from . import files, guard, repositories, semantic, skills, vocabulary
 from .adapters import ENGINES, Adapter, AdapterError, adapter_class
 from .context import ContextError, documents
+from .repositories import Place, Repository
 from .semantic import Model
 from .vocabulary import Vocabulary
 
@@ -42,6 +43,20 @@ class LargeTableEntry(_Strict):
     bound_by: str
 
 
+class InRepository(_Strict):
+    repository: str
+    path: str = "."
+
+
+class RepositoryEntry(_Strict):
+    name: Annotated[str, Field(pattern=r"^[a-z][a-z0-9_-]*$")]
+    url: str
+    ref: str | None = None
+    token_env: Annotated[str, Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")] | None = None
+    token_user: str = "x-access-token"
+    refresh_minutes: Annotated[int, Field(ge=0, le=1440)] = 10
+
+
 class ConnectionLimits(_Strict):
     rows: Annotated[int, Field(gt=0, le=100_000)] = 500
     seconds: Annotated[float, Field(gt=0, le=3600)] = 30
@@ -58,8 +73,8 @@ class ConnectionEntry(BaseModel):
     large_tables: list[LargeTableEntry] = []
     limits: ConnectionLimits = ConnectionLimits()
     instructions: str | None = None
-    context: list[str] = []
-    skills: list[str] = []
+    context: list[str | InRepository] = []
+    skills: list[str | InRepository] = []
     semantic_models: list[str] = []
     missing_tables: Literal["refuse", "leave_out"] = "refuse"
 
@@ -72,9 +87,10 @@ class ConfigFile(_Strict):
     connections: Annotated[list[ConnectionEntry], Field(min_length=1)]
     limits: ServerLimits = ServerLimits()
     instructions: str | None = None
-    context: list[str] = []
-    skills: list[str] = []
+    context: list[str | InRepository] = []
+    skills: list[str | InRepository] = []
     vocabularies: list[str] = []
+    repositories: list[RepositoryEntry] = []
 
 
 @dataclass(frozen=True)
@@ -88,8 +104,8 @@ class Connection:
     adapter: Adapter
     rules: guard.Rules
     instructions: str | None = None
-    context: tuple[pathlib.Path, ...] = ()
-    skills: tuple[pathlib.Path, ...] = ()
+    context: tuple[Place, ...] = ()
+    skills: tuple[Place, ...] = ()
     models: tuple[Model, ...] = ()
     # With `missing_tables: leave_out`: each dataset left out because the database holds no table of its source.
     left_out: tuple[str, ...] = ()
@@ -101,8 +117,10 @@ class Config:
     connections: dict[str, Connection]
     limits: ServerLimits
     instructions: str | None = None
-    context: tuple[pathlib.Path, ...] = ()
-    skills: tuple[pathlib.Path, ...] = ()
+    context: tuple[Place, ...] = ()
+    skills: tuple[Place, ...] = ()
+    # By name: where context and skills are read from when they are not on disk.
+    repositories: dict[str, Repository] = field(default_factory=dict)
     # By vendor name, one for the whole server: a vendor's keys mean the same in every model that uses them.
     vocabularies: dict[str, Vocabulary] = field(default_factory=dict)
 
@@ -162,6 +180,12 @@ def parse(data: Any, *, source: str, base_dir: pathlib.Path, reach: bool = True)
 
     vocabularies, vocabulary_problems = _vocabularies(parsed.vocabularies, base_dir)
     problems.extend(vocabulary_problems)
+    repository_list, repository_problems = _repositories(parsed.repositories, data, reach)
+    problems.extend(repository_problems)
+    by_name = {repository.name: repository for repository in repository_list}
+    # Each scope's context and skills, checked once the repositories they name are fetched: (where, key, places).
+    scopes: list[tuple[str, str, tuple[Place, ...]]] = []
+    place_problems: list[str] = []
     connections: dict[str, Connection] = {}
     for index, entry in enumerate(parsed.connections):
         where = files.location(("connections", index), data)
@@ -169,8 +193,10 @@ def parse(data: Any, *, source: str, base_dir: pathlib.Path, reach: bool = True)
             problems.append(f"{where}: another connection has this name")
             continue
         table_problems = _check_tables(entry)
-        context_paths, context_problems = _context(entry.context, base_dir)
-        skill_paths, skill_problems = _skills(entry.skills, base_dir)
+        context_places, context_problems = _places(entry.context, base_dir, by_name, "context")
+        skill_places, skill_problems = _places(entry.skills, base_dir, by_name, "skills")
+        scopes += [(f"{where} → ", "context", context_places), (f"{where} → ", "skills", skill_places)]
+        place_problems += context_problems + skill_problems
         models, model_problems = _models(entry.semantic_models, base_dir)
         entry_problems = table_problems + context_problems + skill_problems + model_problems
         if entry_problems:
@@ -201,15 +227,18 @@ def parse(data: Any, *, source: str, base_dir: pathlib.Path, reach: bool = True)
             adapter=adapter,
             rules=rules,
             instructions=entry.instructions,
-            context=context_paths,
-            skills=skill_paths,
+            context=context_places,
+            skills=skill_places,
             models=tuple(models),
             left_out=_left_out(missing),
         )
-    server_context, server_context_problems = _context(parsed.context, base_dir)
-    problems.extend(server_context_problems)
-    server_skills, server_skill_problems = _skills(parsed.skills, base_dir)
-    problems.extend(server_skill_problems)
+    server_context, server_context_problems = _places(parsed.context, base_dir, by_name, "context")
+    server_skills, server_skill_problems = _places(parsed.skills, base_dir, by_name, "skills")
+    problems += server_context_problems + server_skill_problems
+    place_problems += server_context_problems + server_skill_problems
+    scopes += [("", "context", server_context), ("", "skills", server_skills)]
+    if not repository_problems:  # fetched whatever else is wrong, so every problem is named at once
+        problems += _fetch(repository_list, scopes, reach, every_entry_read=not place_problems)
     if problems:
         raise ConfigError(source, problems)
     return Config(
@@ -219,6 +248,7 @@ def parse(data: Any, *, source: str, base_dir: pathlib.Path, reach: bool = True)
         instructions=parsed.instructions,
         context=server_context,
         skills=server_skills,
+        repositories=by_name,
         vocabularies=vocabularies,
     )
 
@@ -237,32 +267,104 @@ def _rules(entry: ConnectionEntry, adapter: Adapter) -> guard.Rules:
     )
 
 
-def _context(entries: list[str], base_dir: pathlib.Path) -> tuple[tuple[pathlib.Path, ...], list[str]]:
-    """Context files and folders, relative to the configuration's folder; each must exist, and no two documents may
-    share a name."""
-    paths = tuple((base_dir / entry).resolve() for entry in entries)
-    problems = [f"context: {entry!r} does not exist ({path})" for entry, path in zip(entries, paths, strict=True)
-                if not path.exists()]  # fmt: skip
-    if not problems:
-        try:
+def _repositories(entries: list[RepositoryEntry], data: Any, reach: bool) -> tuple[list[Repository], list[str]]:
+    """The repositories context and skills may be read from: each URL https (http to this machine only) without
+    credentials in it, each ref a branch, a tag or a commit; and, to fetch them (with `reach`), git on this machine."""
+    found: list[Repository] = []
+    problems: list[str] = []
+    for index, entry in enumerate(entries):
+        where = files.location(("repositories", index), data)
+        if any(repository.name == entry.name for repository in found):
+            problems.append(f"{where}: another repository has this name")
+            continue
+        url_problem = repositories.url_problem(entry.url)
+        if url_problem:
+            problems.append(f"{where} → url: {url_problem}")
+        if entry.ref is not None and not repositories.REF.match(entry.ref):
+            problems.append(f"{where} → ref: {entry.ref!r} is not a branch, a tag or a commit")
+        found.append(Repository(name=entry.name, url=entry.url, ref=entry.ref, token_env=entry.token_env,
+                                token_user=entry.token_user, refresh_minutes=entry.refresh_minutes))  # fmt: skip
+    if entries and not problems and reach:
+        git_problem = repositories.git_problem()
+        if git_problem:
+            problems.append(f"repositories: {git_problem}")
+    return found, problems
+
+
+def _places(
+    entries: list[str | InRepository], base_dir: pathlib.Path, by_name: dict[str, Repository], key: str
+) -> tuple[tuple[Place, ...], list[str]]:
+    """Where context or skills are read from: a file or folder relative to the configuration's folder, which must
+    exist, or a path inside a repository the configuration declares — named to it, so only that path is fetched."""
+    places: list[Place] = []
+    problems: list[str] = []
+    for entry in entries:
+        if isinstance(entry, str):
+            path = (base_dir / entry).resolve()
+            if not path.exists():
+                problems.append(f"{key}: {entry!r} does not exist ({path})")
+            places.append(Place(written=entry, local=path))
+            continue
+        written = f"{entry.path} in {entry.repository}"
+        repository = by_name.get(entry.repository)
+        path_problem = repositories.path_problem(entry.path)
+        if repository is None:
+            names = ", ".join(by_name) or "none declared"
+            problems.append(f"{key}: no repository named {entry.repository!r} (repositories: {names})")
+        elif path_problem:
+            problems.append(f"{key}: {entry.path!r} in {entry.repository} {path_problem}")
+        else:
+            path = repositories.normal(entry.path)
+            repository.paths.append(path)
+            places.append(Place(written=written, repository=repository, path=path))
+    return tuple(places), problems
+
+
+def _scope_problems(key: str, places: tuple[Place, ...], copies: dict[str, pathlib.Path] | None = None) -> list[str]:
+    """What is wrong with a scope's context documents (no two may share a name) or skills (each by the format's
+    rules, no two of one name) — with `copies`, as they would be in those copies of its repositories."""
+    try:
+        paths = repositories.current(places, copies)
+        if key == "context":
             documents(paths)
-        except ContextError as error:
-            problems.append(f"context: {error}")
-    return paths, problems
-
-
-def _skills(entries: list[str], base_dir: pathlib.Path) -> tuple[tuple[pathlib.Path, ...], list[str]]:
-    """Skill folders, relative to the configuration's folder; each must exist and hold a skill, every skill's SKILL.md
-    must follow the format, and no two skills may share a name."""
-    paths = tuple((base_dir / entry).resolve() for entry in entries)
-    problems = [f"skills: {entry!r} does not exist ({path})" for entry, path in zip(entries, paths, strict=True)
-                if not path.exists()]  # fmt: skip
-    if not problems:
-        try:
+        else:
             skills.skills(paths)
-        except skills.SkillError as error:
-            problems.append(f"skills: {error}")
-    return paths, problems
+    except (ContextError, skills.SkillError, repositories.RepositoryError) as error:
+        return [f"{key}: {error}"]
+    return []
+
+
+def _fetch(
+    found: list[Repository], scopes: list[tuple[str, str, tuple[Place, ...]]], reach: bool, every_entry_read: bool
+) -> list[str]:
+    """Each repository fetched (with `reach`), then each scope's context and skills checked — those in a repository
+    only once fetched. Each repository is given the checks of the scopes it serves, for a refresh to pass. A repository
+    no entry names is a problem when every entry could be read (one that could not may have been meant to)."""
+    problems = []
+    for repository in found:
+        if not repository.paths:
+            if every_entry_read:
+                problems.append(f"repositories: {repository.name} is named by no `context` or `skills` entry")
+            continue
+        if reach:
+            try:
+                repository.start()
+            except repositories.RepositoryError as error:
+                problems.append(f"repositories: {repository.described}: {error}")
+    for where, key, places in scopes:
+        if not places or any(place.repository is not None and place.repository.current is None for place in places):
+            continue
+        problems.extend(f"{where}{problem}" for problem in _scope_problems(key, places))
+    for repository in found:
+        served = [(where, key, places) for where, key, places in scopes
+                  if any(place.repository is repository for place in places)]  # fmt: skip
+
+        def check(root: pathlib.Path, repository: Repository = repository, served: list = served) -> list[str]:
+            copies = {repository.name: root}
+            return [f"{where}{one}" for where, key, places in served for one in _scope_problems(key, places, copies)]
+
+        repository.check = check
+    return problems
 
 
 def _vocabularies(entries: list[str], base_dir: pathlib.Path) -> tuple[dict[str, Vocabulary], list[str]]:

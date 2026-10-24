@@ -6,6 +6,7 @@ import pytest
 from conftest import write_config
 from mcp import Client
 
+from semantic_warehouse_mcp import skills as skills_module
 from semantic_warehouse_mcp.config import ConfigError, load
 from semantic_warehouse_mcp.server import build_server
 
@@ -51,6 +52,7 @@ def team(shop_path):
     (revenue / "references" / "long.txt").write_text("A line of the long reference.\n" * 300)
     (revenue / "scripts" / "check.sql").write_text(CHECK)
     (revenue / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00")
+    (revenue / "table.bin").write_bytes(b"UTF-8, but\x00 not text")
     (revenue / ".git" / "config").write_text("not served")
     (revenue / ".notes.md").write_text("not served")
     report = folder / "team-skills" / "weekly-report"
@@ -58,6 +60,8 @@ def team(shop_path):
     (report / "SKILL.md").write_text(REPORT)
     (folder / "team-skills" / "drafts").mkdir()  # a folder without a SKILL.md: not a skill, left alone
     (folder / "team-skills" / "README.md").write_text("The team's skills.")
+    (folder / "team-skills" / ".archived").mkdir()  # a hidden folder: never a skill, even holding a SKILL.md
+    (folder / "team-skills" / ".archived" / "SKILL.md").write_text("---\nname: .archived\ndescription: x\n---\n")
     (folder / "outside.md").write_text("not in any skill")
 
     def build(answer_characters=40_000, body=None):
@@ -93,7 +97,7 @@ async def test_a_skill_is_served_as_written_with_its_files(team):
     assert answer["connection"] == "shop"
     assert answer["file"] == "SKILL.md"
     assert answer["files"] == ["references/grouping.md", "references/long.txt", "scripts/check.sql"]
-    assert answer["not_text"] == ["logo.png"]
+    assert answer["not_text"] == ["logo.png", "table.bin"]
     assert "next_offset" not in answer
 
 
@@ -111,7 +115,7 @@ async def test_a_file_of_a_skill_is_served_as_written(team):
 @pytest.mark.parametrize(
     "file",
     ["../../outside.md", "references/../../../outside.md", "/etc/passwd", ".notes.md", ".git/config", "logo.png",
-     "references", "references/", "./references/grouping.md", "REFERENCES/GROUPING.MD"],
+     "references", "references/", "./references/grouping.md", "REFERENCES/GROUPING.MD", "table.bin"],
 )  # fmt: skip
 async def test_only_listed_files_are_served(team, file):
     text, is_error = await call(team(), "get_skill", name="revenue-questions", file=file)
@@ -119,7 +123,7 @@ async def test_only_listed_files_are_served(team, file):
     assert f"has no file {file!r}" in text
 
 
-@pytest.mark.parametrize("name", ["drafts", "team-skills", "../outside", "README.md", "Weekly-Report"])
+@pytest.mark.parametrize("name", ["drafts", "team-skills", "../outside", "README.md", "Weekly-Report", ".archived"])
 async def test_only_listed_skills_are_served(team, name):
     text, is_error = await call(team(), "get_skill", name=name)
     assert is_error
@@ -153,7 +157,7 @@ async def test_a_list_of_many_files_is_cut_and_says_so(team, shop_path):
     assert len(result.content[0].text) <= 2000
     answer = json.loads(result.content[0].text)
     assert 0 < len(answer["files"]) < 203
-    assert answer["note"].startswith(f"Only the first {len(answer['files'])} of the skill's 203 files fit")
+    assert answer["note"].startswith(f"Only the first {len(answer['files'])} of the skill's 203 files")
     assert answer["text"]
 
 
@@ -249,3 +253,56 @@ def test_two_skills_with_one_name_are_named(team, shop_path):
     (other / "SKILL.md").write_text(REPORT)
     with pytest.raises(ConfigError, match="two skills are named 'weekly-report'"):
         team(body=CONFIG.replace("[team-skills]", "[team-skills, elsewhere]"))
+
+
+# --- found by the second reader -------------------------------------------------------------------------------------
+
+
+async def test_many_files_that_are_not_text_stay_within_the_answer(team, shop_path):
+    """A skill of nothing but its SKILL.md and images: the list of what is not text is cut, the SKILL.md comes whole."""
+    assets = shop_path.parent / "team-skills" / "weekly-report" / "assets"
+    assets.mkdir()
+    for number in range(400):
+        (assets / f"chart-{number:03}.png").write_bytes(b"\x89PNG\x00")
+    async with Client(build_server(team(answer_characters=4000))) as client:
+        result = await client.call_tool("get_skill", {"name": "weekly-report"})
+    assert len(result.content[0].text) <= 4000
+    answer = json.loads(result.content[0].text)
+    assert answer["text"] == REPORT
+    assert answer["files"] == []
+    assert 0 < len(answer["not_text"]) < 400
+    assert f"and {len(answer['not_text'])} of its 400 not text fit in the answer" in answer["note"]
+
+
+async def test_a_file_name_longer_than_the_answer_is_cut_and_says_so(team, shop_path):
+    folder = shop_path.parent / "shop-skills" / "revenue-questions" / "references"
+    for number in range(6):
+        (folder / ("x" * 200 + str(number))).mkdir()
+        folder = folder / ("x" * 200 + str(number))
+    (folder / "deep.md").write_text("deep")
+    async with Client(build_server(team(answer_characters=1000))) as client:
+        result = await client.call_tool("get_skill", {"name": "revenue-questions"})
+    assert len(result.content[0].text) <= 1000
+    assert json.loads(result.content[0].text)["note"].startswith("Only the first ")
+
+
+async def test_a_skill_with_a_byte_order_mark(team, shop_path):
+    (shop_path.parent / "team-skills" / "weekly-report" / "SKILL.md").write_text("﻿" + REPORT)
+    answer, _ = await call(team(), "get_skill", name="weekly-report")
+    assert answer["text"] == "﻿" + REPORT
+
+
+async def test_a_skill_swapped_between_two_looks_is_found_or_not_never_a_crash(team, monkeypatch):
+    """A refresh may swap a repository's copy at any moment: a tool looks at each scope's skills once."""
+    config = team()
+    real = skills_module.skills
+    calls = []
+
+    def swapping(paths):
+        calls.append(paths)
+        return real(paths) if len(calls) % 2 else {}
+
+    monkeypatch.setattr(skills_module, "skills", swapping)
+    answer, is_error = await call(config, "get_skill", name="revenue-questions", connection="shop")
+    assert not is_error
+    assert answer["text"] == REVENUE

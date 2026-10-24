@@ -310,6 +310,17 @@ def test_a_missing_variable_is_named_never_a_value(clickhouse_url, tmp_path, mon
         load(write_config(tmp_path, CONFIG.format(url=clickhouse_url)))
 
 
+def test_a_password_written_for_its_variable_is_never_repeated(tmp_path, monkeypatch):
+    monkeypatch.setenv("SWM_TEST_USER", "swm_reader")
+    pasted = "Pa55w0rd_Written_by_mistake"
+    body = CONFIG.format(url="http://127.0.0.1:9").replace("password_env: SWM_TEST_PASSWORD", f"password_env: {pasted}")
+    assert pasted in body
+    with pytest.raises(ConfigError) as error:
+        load(write_config(tmp_path, body))
+    assert "the variable named in `password_env` (not repeated" in str(error.value)
+    assert pasted not in str(error.value)
+
+
 def test_a_url_holding_a_password_is_refused_unrepeated(tmp_path):
     body = CONFIG.format(url="http://someone:hunter2@db.example.com:8123")
     with pytest.raises(ConfigError) as error:

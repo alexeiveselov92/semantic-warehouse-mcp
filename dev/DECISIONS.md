@@ -277,3 +277,45 @@ environment of this repository, as the author's detectkit does — and only for 
 `pyproject.toml`'s version, so a release is one commit and one tag. The image is published for the same tag (GHCR,
 public, its version and commit, never `latest`). The sdist carries the code, the tests, the examples and the guide —
 not `dev/`, the session files or CI. 1.0 stays milestone 9's: docs for agents and operators, a second MCP client.
+
+## 2026-10-24 · Skills: folders in the Agent Skills format, checked at start, read anew
+
+A skill is a folder holding a `SKILL.md` — the [Agent Skills](https://agentskills.io/specification) format, the one
+clients already read — with whatever it refers to beside it (`references/`, `scripts/`, `assets/`). A real data
+agent's skill, studied as a requirement, is such a folder: a `SKILL.md` naming dozens of rule files beside it. So
+`get_skill` serves the `SKILL.md` with the list of its folder's files, and any of those files by the name the list
+gives — never a path an agent writes. Like `context`: for the whole server and per connection; checked at start
+(the format's own rules on `name` and `description`, the name the folder's; no two of one name) and read anew on every
+call, so an edit is served without a restart and a skill broken later is named in the answer. Files that are not text
+(not UTF-8, or holding NUL) are listed apart and not served; hidden files never. The frontmatter's other keys are a
+client's own: served as written, not checked.
+
+## 2026-10-24 · Context and skills straight from a git repository: named, fetched by git, kept fresh
+
+**The author** chose each part: repositories declared once by name (`repositories:`), an entry naming a path inside one
+— one fetch, one token, one refresh for every entry of a repository; fetched at start and every `refresh_minutes`
+(default 10) in the background; by the `git` program; context and skills only (models and vocabularies, checked once
+at start and in a company built by its CI, later if wanted). The server fetches only the named paths of one commit
+(`--depth 1 --filter=blob:none`, then those paths checked out into a folder per commit). A new commit is served only
+when it passes the start checks; otherwise, or when the repository cannot be reached, the commit served stays and
+`list_connections` says why. git runs in an environment of the server's own — no system, user or environment
+configuration, no credential helper, no prompt, no redirect, no protocol but https (http to loopback), symbolic links
+written as files — and the token goes as a header through the environment, never on a command line. The image carries
+git without Perl (89 MB more than 0.1.0's).
+
+## 2026-10-24 · A model's expression runs as written, in its connection's dialect — never translated
+
+**The author**: Ossie names no dialect of ClickHouse, DuckDB or PostgreSQL, and a model already belongs to one
+connection. So an `ANSI_SQL` expression is read in the dialect of the connection its model belongs to and runs as
+written — what an analyst wrote and checked on the warehouse is what runs. No translation: measured, sqlglot's
+ANSI-to-ClickHouse turns `CAST(ts AS DATE)` into `CAST(ts AS Nullable(DATE))` — a translation is not neutral, and a
+changed number looks like a right one. A model meant for several engines writes a variant per engine in this server's
+own `custom_extensions` entry, chosen by the connection's engine before `ANSI_SQL`. Built with the metrics (milestone 6),
+when the server first compiles SQL from expressions: then every expression is parsed in its connection's dialect at
+start, and one that does not parse stops the server, naming it. Until then expressions are served as written.
+
+## 2026-10-24 · The site at `swm.pipelab.dev`
+
+**The author**: a short address without a dash, as detectkit's `dtk.pipelab.dev` — `swm`, the abbreviation the project
+already uses (`SWM_TOKEN`). The package, the repository and the image keep `semantic-warehouse-mcp`: published already,
+and a rename would cost every installation; only the site's address was still free to choose.
