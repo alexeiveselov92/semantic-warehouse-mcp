@@ -1,6 +1,6 @@
 [project]
 name = "semantic-warehouse-mcp"
-version = "0.0.1"
+version = "0.1.0"
 description = "A read-only MCP server for SQL databases with a semantic layer in an open format (Apache Ossie), metrics, your own context and skills — for any database and any MCP client."
 readme = "README.md"
 license = "Apache-2.0"
@@ -10,8 +10,14 @@ authors = [{ name = "Aleksei Veselov" }]
 keywords = ["mcp", "model-context-protocol", "sql", "semantic-layer", "ossie", "metrics", "ai-agents"]
 classifiers = [
   "Development Status :: 2 - Pre-Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: Database",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
     "duckdb>=1.3",
@@ -26,6 +32,9 @@ dependencies = [
 
 [project.urls]
 Repository = "https://github.com/alexeiveselov92/semantic-warehouse-mcp"
+Documentation = "https://github.com/alexeiveselov92/semantic-warehouse-mcp/blob/main/docs/README.md"
+Changelog = "https://github.com/alexeiveselov92/semantic-warehouse-mcp/blob/main/CHANGELOG.md"
+Issues = "https://github.com/alexeiveselov92/semantic-warehouse-mcp/issues"
 
 [project.scripts]
 semantic-warehouse-mcp = "semantic_warehouse_mcp.server:main"
@@ -33,6 +42,9 @@ semantic-warehouse-mcp = "semantic_warehouse_mcp.server:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "tests", "examples", "docs", "README.md", "LICENSE", "CHANGELOG.md", "pyproject.toml", "uv.lock"]
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.6"]

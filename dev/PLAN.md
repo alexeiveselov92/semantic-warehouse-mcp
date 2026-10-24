@@ -106,8 +106,9 @@ The engine production work runs on (the author, 2026-10-24) — moved up from "t
 
 ## Milestone 9. Release — 1 session
 
-- [ ] Published on PyPI (`uvx semantic-warehouse-mcp`), a container image, docs for agents and for people who run it;
-      checked with a second MCP client (not Claude).
+- [x] Ahead of it, at the author's word (2026-10-24): 0.1.0, pre-alpha — the package on PyPI by trusted publishing
+      (`publish.yml`), the image on GHCR (`image.yml`), for a `v*` tag that is the package's version.
+- [ ] 1.0: docs for agents and for people who run it; checked with a second MCP client (not Claude).
 
 ## Later
 

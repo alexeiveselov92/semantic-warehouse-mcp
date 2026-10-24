@@ -4,6 +4,9 @@ The server runs one of two ways: over **stdio**, started by one person's agent o
 **Streamable HTTP**, as a server a team shares. Either way it reads the same [configuration](configuration.md), checks
 it and reaches every database before it answers anything.
 
+It is a Python package on PyPI — `uvx semantic-warehouse-mcp …` runs it without installing anything else, `pip install
+semantic-warehouse-mcp` installs it (Python 3.12 or newer) — and a [container image](#the-image).
+
 ```text
 semantic-warehouse-mcp --config <file> [--check [--offline]]
 semantic-warehouse-mcp --config <file> --http [--host 127.0.0.1] [--port 8000] [--path /mcp] [--token-env NAME]

@@ -4,6 +4,7 @@ One line per change, newest on top: `YYYY-MM-DD — what was done`.
 
 ---
 
+2026-10-24 — **0.1.0**, the first release (pre-alpha): the package on PyPI by trusted publishing (`publish.yml`, for a tag that is the package's version) and the image on GHCR; the README rewritten for what works now
 2026-10-24 — ClickHouse `readonly = 1` users served within their profile (the author: use the read-only user employees have): no limit sent, the answer read no further than one row past what is shown, the query stopped by its id once enough is read or past its time; a profile that cuts silently, or a user that could not stop a query and has no time limit, refused at start; errors met mid-answer in each version's form refused
 2026-10-24 — ClickHouse 22.11 served: the resolved tree asked for (`EXPLAIN QUERY TREE run_passes = 1`), settings a server does not know not sent, 64-bit integers it quotes read back; `missing_tables: leave_out` for a model ahead of its database; checked live on two real warehouses with their read-only users
 2026-10-24 — `--check --offline`: the configuration, its models and vocabularies checked without reaching a database or reading a secret, for CI

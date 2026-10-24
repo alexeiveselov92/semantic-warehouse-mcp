@@ -1,8 +1,9 @@
 # Getting started
 
-semantic-warehouse-mcp is pre-alpha: it runs from its source, over ClickHouse and DuckDB, with the tools in
-[the reference](reference/tools.md). This page takes you from nothing to an agent answering a question about a made-up
-shop's data.
+semantic-warehouse-mcp is pre-alpha: it reads ClickHouse and DuckDB, with the tools in [the reference](reference/tools.md).
+This page takes you from nothing to an agent answering a question about a made-up shop's data — from the source,
+which holds the shop. For your own databases it is a package (`uvx semantic-warehouse-mcp --config config.yaml`,
+or `pip install semantic-warehouse-mcp`) or an image: [running it](reference/running.md).
 
 ## 1. Get it
 
