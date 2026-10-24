@@ -319,3 +319,29 @@ start, and one that does not parse stops the server, naming it. Until then expre
 **The author**: a short address without a dash, as detectkit's `dtk.pipelab.dev` — `swm`, the abbreviation the project
 already uses (`SWM_TOKEN`). The package, the repository and the image keep `semantic-warehouse-mcp`: published already,
 and a rename would cost every installation; only the site's address was still free to choose.
+
+## 2026-10-25 · Each engine's driver is an extra, as in detectkit
+
+**The author**: drivers apart, as detectkit has them — install every one, or only those you use. `[postgres]`
+(psycopg), `[duckdb]`, `[all]`; `[clickhouse]` installs nothing more (HTTP through httpx, which the server has anyway).
+An adapter imports its driver only when used; a connection whose driver is missing stops the server at start, naming
+the extra; `--check --offline` needs none. The image holds every driver; the development environment too (the `dev`
+group depends on `[all]`). DuckDB moved out of the base install with it — the getting-started works from the source,
+where `uv sync` installs it.
+
+## 2026-10-25 · PostgreSQL: a read-only transaction, a cursor, the plan read through the views a query names
+
+Decided by the agent, at the author's word ("decide yourself"). Every query in a transaction opened `READ ONLY`, the
+session's default read-only too (`-c default_transaction_read_only=on`), its `statement_timeout` the connection's
+seconds and a client-side cancel a few seconds later; rows read through a server-side cursor, one past `rows`. What a
+read-only transaction does not stop is refused by name (files, SQL from a string, other sessions, locks, settings,
+sleep). A superuser, or a member of the roles that reach the server's files or programs, is refused at start. The
+engine's reading is the plan (`EXPLAIN (VERBOSE, FORMAT JSON)`, in the same transaction, never run): a plan reads a
+view's own tables in its place, so the base tables of the views the query names — which the guard held readable — are
+left to them; a partition reads as its root; every other relation is held to `readable`. psycopg 3 as the driver.
+
+Refuted by a second reader the same day: index maintenance (`brin_*`, `gin_clean_pending_list`) writes past a
+read-only transaction for an owner — now refused by name, and a user that owns anything (or inherits from an owner) is
+refused at start. A function defined in the database reads with the user's grants, unseen by the guard and the plan:
+the grants are the line, so the server notes — never refuses — a user that may read beyond `readable`, or holds
+`pg_read_all_data` or `BYPASSRLS`. Catalog metadata (sizes, definitions) is not data, and is not refused.

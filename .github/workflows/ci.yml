@@ -24,8 +24,16 @@ jobs:
         options: >-
           --health-cmd "wget -qO- http://127.0.0.1:8123/ping || exit 1"
           --health-interval 2s --health-timeout 2s --health-retries 30
+      postgres:  # a throwaway server for tests/test_postgres.py
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: admin
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 2s --health-retries 30
     env:
       SWM_TEST_CLICKHOUSE_URL: http://localhost:8123
+      SWM_TEST_POSTGRES_URL: postgresql://postgres:admin@localhost:5432/postgres
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.2.0

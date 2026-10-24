@@ -6,9 +6,12 @@ import json
 import pathlib
 import threading
 
-import duckdb
+from . import Adapter, AdapterError, Column, EngineReading, EngineSettings, Result, Table, TimedOut, missing_driver
 
-from . import Adapter, AdapterError, Column, EngineReading, EngineSettings, Result, Table, TimedOut
+try:
+    import duckdb
+except ImportError:  # the `duckdb` extra is not installed: `check` says so
+    duckdb = None
 
 # The engine's own line: the file opened read-only, no reading of files or URLs, no extensions loaded on demand,
 # no Python variables read as tables, and none of it changeable from a query.
@@ -53,10 +56,12 @@ class DuckDBAdapter(Adapter):
             raise AdapterError(f"cannot open {self.path} read-only: {error}") from error
 
     def check(self) -> None:
+        if duckdb is None:
+            raise missing_driver("duckdb", "duckdb")
         with self._connect() as connection:
             self._catalog = connection.execute("SELECT current_database()").fetchone()[0]
 
-    def engine_reading(self, sql: str, seconds: float) -> EngineReading:
+    def engine_reading(self, sql: str, seconds: float, named: tuple[str, ...] = ()) -> EngineReading:
         try:
             with duckdb.connect(":memory:") as parser:
                 statements = parser.extract_statements(sql)

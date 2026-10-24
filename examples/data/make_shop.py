@@ -3,12 +3,17 @@
     uv run python examples/data/make_shop.py                     # → examples/data/shop.duckdb
     uv run python examples/data/make_shop.py /some/where.duckdb
     uv run python examples/data/make_shop.py --clickhouse http://localhost:8123
+    uv run python examples/data/make_shop.py --postgres postgresql://postgres:…@localhost:5432/postgres
 
 Half a year of a small online shop: customers in a few countries, paid orders (prices rose on 2026-03-01, some orders
 refunded), and the raw events behind them — the large table a query must bound by its date.
 
 For ClickHouse, a throwaway server: it creates the databases `marts`, `raw` and `dictionaries` and replaces the shop's
 tables in them, as the user in CLICKHOUSE_USER with the password in CLICKHOUSE_PASSWORD.
+
+For PostgreSQL, a throwaway server too, as a user that may create schemas and roles: it replaces the schemas `marts`,
+`raw` and `dictionaries`, and makes the role the example connects as — `shop_reader`, password `shop_reader`, which
+may only read them (the server refuses a superuser).
 """
 
 import datetime
@@ -41,7 +46,8 @@ COMMENTS = {
     "raw.events": "Every event the shop's site sends, as sent. Large: bound event_date.",
 }
 
-DUCKDB_SCHEMA = """
+# DuckDB and PostgreSQL both read it.
+SCHEMA = """
 CREATE SCHEMA marts;
 CREATE SCHEMA raw;
 CREATE SCHEMA dictionaries;
@@ -116,7 +122,7 @@ def build(path: pathlib.Path) -> None:
     tables = shop()
     path.unlink(missing_ok=True)
     with duckdb.connect(str(path)) as connection:
-        connection.execute(DUCKDB_SCHEMA)
+        connection.execute(SCHEMA)
         for name, comment in COMMENTS.items():
             kind = "COLUMN" if name.count(".") == 2 else "TABLE"
             connection.execute(f"COMMENT ON {kind} {name} IS '{comment.replace(chr(39), chr(39) * 2)}'")
@@ -146,6 +152,27 @@ def build_clickhouse(url: str) -> None:
     print(f"{url}: " + ", ".join(f"{table} {len(rows)}" for table, rows in tables.items()))
 
 
+def build_postgres(url: str) -> None:
+    import psycopg
+
+    tables = shop()
+    with psycopg.connect(url, autocommit=True) as connection:
+        connection.execute("DROP SCHEMA IF EXISTS marts, raw, dictionaries CASCADE")
+        connection.execute(SCHEMA)
+        for name, comment in COMMENTS.items():
+            kind = "COLUMN" if name.count(".") == 2 else "TABLE"
+            connection.execute(f"COMMENT ON {kind} {name} IS '{comment.replace(chr(39), chr(39) * 2)}'")
+        for table, rows in tables.items():
+            with connection.cursor().copy(f"COPY {table} FROM STDIN") as copy:
+                for row in rows:
+                    copy.write_row(row)
+        if not connection.execute("SELECT 1 FROM pg_roles WHERE rolname = 'shop_reader'").fetchone():
+            connection.execute("CREATE ROLE shop_reader LOGIN PASSWORD 'shop_reader'")
+        connection.execute("GRANT USAGE ON SCHEMA marts, raw, dictionaries TO shop_reader")
+        connection.execute("GRANT SELECT ON ALL TABLES IN SCHEMA marts, raw, dictionaries TO shop_reader")
+    print("PostgreSQL: " + ", ".join(f"{table} {len(rows)}" for table, rows in tables.items()))
+
+
 def _iso(value: datetime.date) -> str:
     return value.isoformat(sep=" ") if isinstance(value, datetime.datetime) else value.isoformat()
 
@@ -153,6 +180,8 @@ def _iso(value: datetime.date) -> str:
 if __name__ == "__main__":
     if len(sys.argv) > 2 and sys.argv[1] == "--clickhouse":
         build_clickhouse(sys.argv[2])
+    elif len(sys.argv) > 2 and sys.argv[1] == "--postgres":
+        build_postgres(sys.argv[2])
     else:
         build(
             pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else pathlib.Path(__file__).resolve().parent / "shop.duckdb"

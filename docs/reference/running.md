@@ -4,8 +4,10 @@ The server runs one of two ways: over **stdio**, started by one person's agent o
 **Streamable HTTP**, as a server a team shares. Either way it reads the same [configuration](configuration.md), checks
 it and reaches every database before it answers anything.
 
-It is a Python package on PyPI — `uvx semantic-warehouse-mcp …` runs it without installing anything else, `pip install
-semantic-warehouse-mcp` installs it (Python 3.12 or newer) — and a [container image](#the-image). Context and skills
+It is a Python package on PyPI, each engine's driver an extra ([engines](engines.md#drivers)) — `uvx --from
+'semantic-warehouse-mcp[all]' semantic-warehouse-mcp …` runs it without installing anything else, `pip install
+'semantic-warehouse-mcp[postgres]'` installs it with one driver (Python 3.12 or newer) — and a
+[container image](#the-image), which holds every driver. Context and skills
 [read from a repository](configuration.md#repositories) need the `git` program as well (2.31 or newer), which the image
 holds.
 

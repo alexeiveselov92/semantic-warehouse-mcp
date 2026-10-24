@@ -235,7 +235,7 @@ class ClickHouseAdapter(Adapter):
             raise self._error(response.headers.get("X-ClickHouse-Exception-Code", ""), response.text, 20)
         return {row[0]: row[1] for row in map(json.loads, response.text.splitlines()) if row}
 
-    def engine_reading(self, sql: str, seconds: float) -> EngineReading:
+    def engine_reading(self, sql: str, seconds: float, named: tuple[str, ...] = ()) -> EngineReading:
         try:
             tree = self._get(f"{EXPLAIN} {sql}", seconds=seconds, settings={"default_format": "TSVRaw"})
         except TimedOut:

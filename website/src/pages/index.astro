@@ -446,22 +446,24 @@ const repositoryState =
 
 // ---- any client ----
 const stdioSetup = shell(`# one person's agent starts the server beside it, over stdio
-$ uvx semantic-warehouse-mcp --config config.yaml --check
+$ uvx --from 'semantic-warehouse-mcp[all]' semantic-warehouse-mcp \\
+    --config config.yaml --check
 The configuration config.yaml is fine:
   - shop (duckdb): reached; readable marts.*, dictionaries.*, raw.events
     semantic model shop (Ossie 0.2.0.dev0): 3 datasets, 2 metrics
     context: 1 document
   - vocabulary acme (vocabulary/acme.yaml): 4 keys
   - for every connection, skills: revenue-questions
-$ claude mcp add warehouse -- \\
-    uvx semantic-warehouse-mcp --config /path/to/config.yaml`);
+$ claude mcp add warehouse -- uvx --from \\
+    'semantic-warehouse-mcp[all]' semantic-warehouse-mcp \\
+    --config /path/to/config.yaml`);
 
 const httpSetup = shell(`# one server for a team: Streamable HTTP, at /mcp
 $ export SWM_TOKEN=…        # a long random value
-$ uvx semantic-warehouse-mcp --config config.yaml \\
-    --http --host 0.0.0.0 --token-env SWM_TOKEN
+$ uvx --from 'semantic-warehouse-mcp[all]' semantic-warehouse-mcp \\
+    --config config.yaml --http --host 0.0.0.0 --token-env SWM_TOKEN
 $ curl -s localhost:8000/health
-{"status":"ok","name":"semantic-warehouse-mcp","version":"0.2.0"}
+{"status":"ok","name":"semantic-warehouse-mcp","version":"0.3.0"}
 
 # each person's agent
 $ claude mcp add --transport http warehouse \\
@@ -554,13 +556,13 @@ const tools = [
             <a class="btn btn-ghost" href={repo}>GitHub</a>
           </div>
           <ul class="install" aria-label="Install">
-            <li><span>run</span><code>uvx semantic-warehouse-mcp</code></li>
-            <li><span>install</span><code>pip install semantic-warehouse-mcp</code></li>
+            <li><span>run</span><code>uvx --from 'semantic-warehouse-mcp[all]' semantic-warehouse-mcp</code></li>
+            <li><span>install</span><code>pip install 'semantic-warehouse-mcp[postgres]'</code></li>
             <li><span>image</span><code>{image}</code></li>
           </ul>
           <ul class="hero-stats" aria-label="At a glance">
             <li><strong>13</strong> read-only tools</li>
-            <li><strong>ClickHouse</strong> and <strong>DuckDB</strong></li>
+            <li><strong>ClickHouse</strong>, <strong>PostgreSQL</strong> and <strong>DuckDB</strong></li>
             <li><strong>stdio</strong> or <strong>Streamable HTTP</strong></li>
           </ul>
         </div>
@@ -593,11 +595,11 @@ const tools = [
             <span class="strip-label">Reads</span>
             <ul class="chips">
               <li>ClickHouse</li>
+              <li>PostgreSQL</li>
               <li>DuckDB</li>
             </ul>
             <span class="strip-next">next:</span>
             <ul class="chips chips-next" aria-label="Next">
-              <li>PostgreSQL</li>
               <li>MySQL</li>
               <li>BigQuery</li>
               <li>Snowflake</li>
@@ -780,7 +782,8 @@ const tools = [
               <li>
                 <strong>Read-only by the database's own means</strong> — DuckDB's file opened read-only with external access
                 off and its configuration locked; ClickHouse over HTTP <code>GET</code>, which it runs read-only whoever the
-                user is. Give the server a user that reads only what agents may.
+                user is; PostgreSQL in a read-only transaction, a superuser refused. Give the server a user that reads only
+                what agents may.
               </li>
               <li>
                 <strong>Limits that refuse, never cut silently</strong> — on ClickHouse every limit refuses on overflow; a
@@ -884,7 +887,7 @@ const tools = [
             <ul>
               <li>A read-only MCP server for SQL databases, with a semantic layer in Apache Ossie, your own metadata, context and skills beside the data.</li>
               <li>Configured in one YAML file: connections, readable tables, large tables, limits — secrets named by their variables, never written in it.</li>
-              <li>For any MCP client, over stdio or Streamable HTTP; ClickHouse and DuckDB today.</li>
+              <li>For any MCP client, over stdio or Streamable HTTP; ClickHouse, PostgreSQL and DuckDB today.</li>
               <li>Open source, Apache-2.0.</li>
             </ul>
           </div>

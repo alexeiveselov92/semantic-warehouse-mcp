@@ -10,7 +10,7 @@ it lets agents find the right tables, read what they mean and query them, safely
 
 ## What it does now
 
-- **ClickHouse and DuckDB**, configured in one YAML file: the tables agents may read, the large tables a query must
+- **ClickHouse, PostgreSQL and DuckDB**, configured in one YAML file: the tables agents may read, the large tables a query must
   bound, limits per query; secrets by variable name, never written in it.
 - **Read-only, checked twice**: one `SELECT` at a time, parsed for the database's own dialect by
   [sqlglot](https://github.com/tobymao/sqlglot) and by the database itself; only the tables you allow, wherever they
@@ -29,16 +29,18 @@ it lets agents find the right tables, read what they mean and query them, safely
 
 ## Install
 
+Each engine's driver is an extra — `postgres`, `duckdb`, or `all` (ClickHouse needs none):
+
 ```bash
-uvx semantic-warehouse-mcp --config config.yaml --check     # check a configuration, reach every database
-uvx semantic-warehouse-mcp --config config.yaml             # serve over stdio
-pip install semantic-warehouse-mcp                          # or install it
+uvx --from 'semantic-warehouse-mcp[all]' semantic-warehouse-mcp --config config.yaml --check   # check, reach every database
+uvx --from 'semantic-warehouse-mcp[all]' semantic-warehouse-mcp --config config.yaml           # serve over stdio
+pip install 'semantic-warehouse-mcp[postgres]'                                                  # or install it
 ```
 
 Connect Claude Code (any client that runs stdio servers takes the same command):
 
 ```bash
-claude mcp add warehouse -- uvx semantic-warehouse-mcp --config /path/to/config.yaml
+claude mcp add warehouse -- uvx --from 'semantic-warehouse-mcp[all]' semantic-warehouse-mcp --config /path/to/config.yaml
 ```
 
 ## Documentation

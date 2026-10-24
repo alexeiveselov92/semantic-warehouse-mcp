@@ -59,6 +59,17 @@ whether there were more; stop after `seconds`), `tables()` and `columns()`.
   `dictGet…` / `dictHas` / `dictIsIn` / `joinGet…` name a dictionary or Join table in their first argument: the guard
   requires a string and checks it against `readable` (`table_reading_functions`). Table functions: `numbers`,
   `generateSeries` only.
+- **PostgreSQL** (built, milestone 5): psycopg 3 (the `postgres` extra); a connection per call, `default_transaction_read_only`
+  and a `READ ONLY` transaction, `statement_timeout` from the connection's seconds and `cancel_safe` past a margin; rows
+  through a named (server-side) cursor, `max_rows + 1`; a superuser or a member of `pg_read_server_files`,
+  `pg_write_server_files`, `pg_execute_server_program` refused at start. Denied functions: those that reach files, run
+  SQL from a string (`query_to_xml*`, `crosstab*`, `ts_stat`, `dblink*`), signal or stop sessions, take advisory locks,
+  sleep, change settings, show other sessions. The engine's reading is `EXPLAIN (VERBOSE, FORMAT JSON)`: its `Relation
+  Name` nodes, minus the base tables of the views the guard named (`pg_rewrite` → `pg_depend`, recursively), each
+  partition or inheriting table mapped to its root (`pg_inherits`). `engine_reading` takes the guard's tables for it
+  (`named`).
+- **Drivers are extras** (`DECISIONS.md`): an adapter imports its driver at module load inside `try`, and `check()`
+  names the extra when it is missing.
 - **DuckDB's own reading** names tables too: `json_serialize_sql` gives its parse tree, whose `BASE_TABLE` nodes are
   the tables read (an unqualified name that is one of the query's CTEs left out).
 

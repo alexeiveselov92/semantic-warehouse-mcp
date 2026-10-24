@@ -83,7 +83,9 @@ The engine production work runs on (the author, 2026-10-24) — moved up from "t
 ## Milestone 5. The other databases people use — 2 sessions
 
 - [ ] PostgreSQL, MySQL; then BigQuery, Snowflake — each an adapter with its read-only session, its guard deny-list
-      and probes; tested against real servers in containers where they exist.
+      and probes; tested against real servers in containers where they exist. PostgreSQL ✅ 2026-10-25 (a read-only
+      transaction, a cursor, the plan read through the named views; tested on 17 in a container and in CI; real
+      Claude Code answered April revenue by country, checked by a direct query); drivers made extras (the author).
 - [ ] The self-check at start: probes with known verdicts run through the guard and the engine's own parser; a
       dialect either misreads is refused, not trusted.
 

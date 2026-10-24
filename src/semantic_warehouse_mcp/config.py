@@ -109,6 +109,8 @@ class Connection:
     models: tuple[Model, ...] = ()
     # With `missing_tables: leave_out`: each dataset left out because the database holds no table of its source.
     left_out: tuple[str, ...] = ()
+    # What the connection's check found worth saying to whoever runs the server, without stopping it.
+    notes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -210,6 +212,10 @@ def parse(data: Any, *, source: str, base_dir: pathlib.Path, reach: bool = True)
                 problems.append(f"{where}: {error}")
                 continue
         rules = _rules(entry, adapter)  # after `check`, which may learn the connection's own catalog
+        if reach:
+            note = _beyond_readable(adapter, rules)
+            if note:
+                adapter.notes.append(note)
         missing: list[tuple[Model, str, str]] = []
         leave_out = entry.missing_tables == "leave_out"
         binding_problems = _bind(models, rules, adapter if reach else None, missing if leave_out else None)
@@ -231,6 +237,7 @@ def parse(data: Any, *, source: str, base_dir: pathlib.Path, reach: bool = True)
             skills=skill_places,
             models=tuple(models),
             left_out=_left_out(missing),
+            notes=tuple(adapter.notes),
         )
     server_context, server_context_problems = _places(parsed.context, base_dir, by_name, "context")
     server_skills, server_skill_problems = _places(parsed.skills, base_dir, by_name, "skills")
@@ -250,6 +257,26 @@ def parse(data: Any, *, source: str, base_dir: pathlib.Path, reach: bool = True)
         skills=server_skills,
         repositories=by_name,
         vocabularies=vocabularies,
+    )
+
+
+def _beyond_readable(adapter: Adapter, rules: guard.Rules) -> str | None:
+    """A note when the connection's user may read tables `readable` leaves out: the guard holds a query to `readable`,
+    but a function defined in the database reads with the user's grants, where the guard cannot see."""
+    try:
+        granted = adapter.granted_tables()
+    except AdapterError as error:
+        return f"the tables the user may read could not be listed: {error}"
+    if granted is None:
+        return None
+    beyond = [f"{schema}.{table}" for schema, table in granted if not guard.is_readable(schema, table, rules)]
+    if not beyond:
+        return None
+    shown = ", ".join(beyond[:3]) + (f" and {len(beyond) - 3} more" if len(beyond) > 3 else "")
+    return (
+        f"the user may read {len(beyond)} table{'s' if len(beyond) > 1 else ''} `readable` leaves out ({shown}): "
+        "queries are held to `readable`, but a function defined in the database reads with the user's grants — grant "
+        "the user only what agents may read"
     )
 
 

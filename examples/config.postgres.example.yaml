@@ -1,0 +1,23 @@
+# The made-up shop in PostgreSQL (docs/reference/engines.md). Made-up names only.
+# Load it into a throwaway server:  uv run python examples/data/make_shop.py --postgres postgresql://postgres:…@localhost:5432/postgres
+# It makes the read-only role `shop_reader` (password `shop_reader`); name it in the variables below, then:
+#   SHOP_POSTGRES_USER=shop_reader SHOP_POSTGRES_PASSWORD=shop_reader \
+#     uv run semantic-warehouse-mcp --config examples/config.postgres.example.yaml --check
+
+connections:
+  - name: warehouse
+    engine: postgres
+    description: A made-up online shop in PostgreSQL — customers, paid orders, and the raw events of its site.
+    host: localhost
+    port: 5432
+    database: postgres
+    user_env: SHOP_POSTGRES_USER              # the variables' names — their values never appear here
+    password_env: SHOP_POSTGRES_PASSWORD
+    sslmode: prefer                            # require or verify-full for a server across a network
+    readable: ["marts.*", "dictionaries.*", "raw.events"]
+    large_tables:
+      - { table: raw.events, bound_by: event_date }
+    limits: { rows: 500, seconds: 30 }
+    semantic_models: [semantic/]              # the same model as the DuckDB example: its tables have the same names
+
+vocabularies: [vocabulary/acme.yaml]

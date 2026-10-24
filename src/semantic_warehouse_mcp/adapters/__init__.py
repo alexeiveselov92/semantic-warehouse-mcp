@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict
 ENGINES: dict[str, str] = {
     "clickhouse": "semantic_warehouse_mcp.adapters.clickhouse:ClickHouseAdapter",
     "duckdb": "semantic_warehouse_mcp.adapters.duckdb:DuckDBAdapter",
+    "postgres": "semantic_warehouse_mcp.adapters.postgres:PostgresAdapter",
 }
 
 
@@ -68,6 +69,14 @@ class TimedOut(AdapterError):
     """The query ran past the connection's time limit and was stopped."""
 
 
+def missing_driver(engine: str, package: str) -> AdapterError:
+    """An engine's driver comes with an extra of its own: what to install when it is not there."""
+    return AdapterError(
+        f"the {engine} driver ({package}) is not installed: pip install 'semantic-warehouse-mcp[{engine}]' — or [all] "
+        "for every engine's"
+    )
+
+
 class Adapter(ABC):
     engine: ClassVar[str]
     dialect: ClassVar[str]  # sqlglot's name for the engine's SQL dialect
@@ -84,6 +93,8 @@ class Adapter(ABC):
     def __init__(self, settings: EngineSettings, base_dir: pathlib.Path) -> None:
         self.settings = settings
         self.base_dir = base_dir
+        # What `check()` found worth the attention of whoever runs the server, without stopping it.
+        self.notes: list[str] = []
 
     @property
     @abstractmethod
@@ -99,8 +110,15 @@ class Adapter(ABC):
     def check(self) -> None:
         """At start: reach the database and confirm it is read-only. Raises AdapterError naming what is wrong."""
 
-    def engine_reading(self, sql: str, seconds: float) -> EngineReading:
-        """The engine's own reading of a query the guard passed, where the engine has a parser to ask."""
+    def granted_tables(self) -> list[tuple[str, str]] | None:
+        """The tables and views the connection's user may read, as (schema, table) — where the engine can say. The
+        configuration names those `readable` leaves out: a function defined in the database reads with the user's
+        grants, where the guard cannot see."""
+        return None
+
+    def engine_reading(self, sql: str, seconds: float, named: tuple[str, ...] = ()) -> EngineReading:
+        """The engine's own reading of a query the guard passed, where the engine has a parser to ask. `named`: the
+        tables the guard found it reads (schema.table) — for an engine whose reading shows a view's own tables."""
         return EngineReading()
 
     @abstractmethod

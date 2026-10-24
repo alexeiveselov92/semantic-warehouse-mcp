@@ -1,11 +1,26 @@
 # Engines
 
 The databases semantic-warehouse-mcp reads, each through an adapter: its configuration keys, how it is kept read-only,
-and what the guard allows on it. Supported now: ClickHouse and DuckDB. Next: PostgreSQL, MySQL, BigQuery, Snowflake.
+and what the guard allows on it. Supported now: ClickHouse, PostgreSQL and DuckDB. Next: MySQL, BigQuery, Snowflake.
 
 Whatever the engine, give the server a database user that can read only the tables agents may read: the engine's own
 read-only means and [the guard](guard.md) keep queries from writing, and the user's grants are the line the database
 itself holds on what is read.
+
+## Drivers
+
+Each engine's driver comes with an extra of its own — install the ones you use, or every one:
+
+```sh
+pip install 'semantic-warehouse-mcp[postgres]'           # PostgreSQL (psycopg)
+pip install 'semantic-warehouse-mcp[duckdb]'             # DuckDB
+pip install 'semantic-warehouse-mcp[all]'                # every engine's driver
+uvx --from 'semantic-warehouse-mcp[postgres]' semantic-warehouse-mcp --config config.yaml
+```
+
+ClickHouse needs none: the server reaches it over HTTP (`[clickhouse]` exists, and installs nothing more). A connection
+whose engine's driver is missing stops the server at start, naming the extra to install. The
+[image](running.md#the-image) holds every driver.
 
 ## ClickHouse
 
@@ -71,9 +86,74 @@ catalogs: a three-part name is refused.
 **Dictionaries and Join tables.** `dictGet…`, `dictHas`, `dictIsIn` and `joinGet…` read the dictionary or table named in
 their first argument: the name must be a string, and the dictionary readable (`dictionaries.*` in the example).
 
+## PostgreSQL
+
+`engine: postgres` — a PostgreSQL server (tried on 17). Needs the `postgres` extra.
+
+| Key | | What |
+|---|---|---|
+| `host` | required | the server's address |
+| `port` | | `5432` when not given |
+| `database` | required | the database to read — its schemas are the `schema` of `schema.table` |
+| `user_env` | required | the environment variable holding the user's name |
+| `password_env` | | the environment variable holding the password |
+| `sslmode` | | as libpq has it: `disable`, `allow`, `prefer` (when not given), `require`, `verify-ca`, `verify-full` — `require` or `verify-full` for a server across a network |
+
+```yaml
+connections:
+  - name: warehouse
+    engine: postgres
+    host: postgres.example.com
+    database: analytics
+    user_env: WAREHOUSE_USER          # the variable's name — its value never appears in a file, a log or an answer
+    password_env: WAREHOUSE_PASSWORD
+    sslmode: verify-full
+    readable: ["marts.*", "raw.events"]
+    large_tables:
+      - { table: raw.events, bound_by: event_date }
+```
+
+**Read-only, by PostgreSQL's own means.** Every query runs in a transaction opened read-only — and the session's
+default made read-only too, from its first statement — so no table, sequence or setting is written, even by a function
+that writes, even as a user allowed to. What a read-only transaction does not stop, the guard refuses by name: the
+functions that maintain an index (`brin_summarize_new_values`, `gin_clean_pending_list`, … — they write to it in a
+read-only transaction too), read the server's files (`pg_read_file`, `lo_import`, …), run SQL from a string past the
+guard (`query_to_xml`, `crosstab`, `ts_stat`, `dblink`), signal or stop other sessions, take locks, sleep, change a
+setting (`set_config`), export a snapshot, or show other sessions and the statistics of any table (`pg_stat_get_*`).
+
+**The user.** The server stops at start for a superuser; for a member of `pg_read_server_files`,
+`pg_write_server_files` or `pg_execute_server_program` — they reach the server's files and programs; and for a user
+that owns anything in the database, or inherits from its owner — an owner may maintain what it owns even in a
+read-only transaction. Give the server a role that owns nothing and may only read what agents may — `GRANT USAGE` on
+the schemas, `GRANT SELECT` on the tables.
+
+The guard holds every query to `readable`; the user's grants hold everything else. A function defined in the database
+runs with the user's grants, where the guard cannot see inside it — so `--check` (and the server's log at start) says
+when the user may read tables `readable` leaves out, naming them, and when it holds `pg_read_all_data` or `BYPASSRLS`,
+which read every table and every row whatever the grants and row security say. Neither stops the server: the grants
+are yours to narrow. What the catalog says of any table — its size, a view's or a function's definition — is metadata,
+not its rows, and is not refused.
+
+**Limits.** A query past `seconds` is stopped by the server (its statement timeout), and by the connection past a few
+seconds more. Rows are read through a cursor on the server, one past the connection's `rows` and no further — a query
+that would return millions makes only those.
+
+**The engine's own reading.** Before a query runs, PostgreSQL plans it (`EXPLAIN`, never run, in the same read-only
+transaction): a query it cannot plan is refused with its own words (`engine_parse`), and every table the plan reads is
+held to `readable` and the large-table bound, like the tables the guard found. A plan reads a view's own tables in its
+place: those of the views the query names — each one readable — are its own business, and are not held to `readable`
+(a readable view over a table that is not serves what the view shows). A partition is read as the table it belongs to.
+
+**Names.** The default schema is the user's own (`current_schema()`, usually `public`); names are case-insensitive
+unless quoted, as PostgreSQL resolves them. A three-part name may name the connection's own database and no other.
+
+**Allowed table functions**: `generate_series`, `generate_subscripts`, `unnest`, `regexp_split_to_table`, and the
+JSON ones that unfold a value (`json_each`, `jsonb_each`, `json_array_elements`, … and their `_text` forms). Every
+other table function is refused.
+
 ## DuckDB
 
-`engine: duckdb` — a DuckDB database file.
+`engine: duckdb` — a DuckDB database file. Needs the `duckdb` extra.
 
 | Key | | What |
 |---|---|---|

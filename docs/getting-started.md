@@ -1,9 +1,11 @@
 # Getting started
 
-semantic-warehouse-mcp is pre-alpha: it reads ClickHouse and DuckDB, with the tools in [the reference](reference/tools.md).
-This page takes you from nothing to an agent answering a question about a made-up shop's data — from the source,
-which holds the shop. For your own databases it is a package (`uvx semantic-warehouse-mcp --config config.yaml`,
-or `pip install semantic-warehouse-mcp`) or an image: [running it](reference/running.md).
+semantic-warehouse-mcp is pre-alpha: it reads ClickHouse, PostgreSQL and DuckDB, with the tools in
+[the reference](reference/tools.md). This page takes you from nothing to an agent answering a question about a made-up
+shop's data — from the source, which holds the shop. For your own databases it is a package with each engine's driver
+as an extra (`uvx --from 'semantic-warehouse-mcp[all]' semantic-warehouse-mcp --config config.yaml`, or
+`pip install 'semantic-warehouse-mcp[postgres]'` — [engines](reference/engines.md#drivers)) or an image:
+[running it](reference/running.md).
 
 ## 1. Get it
 
@@ -74,6 +76,8 @@ Try asking for something it must not do — to delete an order, or to read every
 
 ## Your own database
 
-Point a configuration at your own ClickHouse server or DuckDB file ([engines](reference/engines.md)), list the tables
-agents may read in `readable`, and name the large ones in `large_tables`. For ClickHouse, name the variables that hold
-the user and password (`user_env`, `password_env`) and set them in the client's configuration — never in the file.
+Point a configuration at your own ClickHouse or PostgreSQL server or DuckDB file ([engines](reference/engines.md)),
+list the tables agents may read in `readable`, and name the large ones in `large_tables`. For a server, name the
+variables that hold the user and password (`user_env`, `password_env`) and set them in the client's configuration —
+never in the file. The made-up shop loads into either server too (`examples/data/make_shop.py --clickhouse …` or
+`--postgres …`, with `examples/config.clickhouse.example.yaml` and `examples/config.postgres.example.yaml`).

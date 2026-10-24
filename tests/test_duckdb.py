@@ -129,3 +129,11 @@ def test_a_missing_file_is_named(tmp_path):
     adapter = DuckDBAdapter(DuckDBSettings(path="nowhere.duckdb"), tmp_path)
     with pytest.raises(AdapterError, match="nowhere.duckdb does not exist"):
         adapter.check()
+
+
+def test_the_driver_not_installed_names_its_extra(shop_path, monkeypatch):
+    from semantic_warehouse_mcp.adapters import duckdb as duckdb_adapter
+
+    monkeypatch.setattr(duckdb_adapter, "duckdb", None)
+    with pytest.raises(AdapterError, match=r"pip install 'semantic-warehouse-mcp\[duckdb\]' — or \[all\]"):
+        DuckDBAdapter(DuckDBSettings(path=shop_path.name), shop_path.parent).check()

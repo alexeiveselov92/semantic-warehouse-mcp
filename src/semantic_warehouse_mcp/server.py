@@ -579,7 +579,7 @@ def build_server(config: Config | None = None) -> MCPServer:
         chosen = pick(connection)
         try:
             checked = guard.check(sql, connection_rules[chosen.name])
-            reading = chosen.adapter.engine_reading(checked.sql, seconds=chosen.limits.seconds)
+            reading = chosen.adapter.engine_reading(checked.sql, seconds=chosen.limits.seconds, named=checked.tables)
             if reading.refusal:
                 raise guard.Refused("engine_parse", reading.refusal)
             if reading.tables is not None:
@@ -678,6 +678,8 @@ def main(argv: list[str] | None = None) -> None:
                 print(f"    semantic model {model.name} (Ossie {model.version}): {counts}")
             if connection.left_out:
                 print(f"    left out, the database holding no table of theirs: {', '.join(connection.left_out)}")
+            for note in connection.notes:
+                print(f"    note: {note}")
             print_team_files("    ", connection.context, connection.skills)
         for vendor, declared in config.vocabularies.items():
             print(f"  - vocabulary {vendor} ({declared.file}): {len(declared.keys)} keys")
@@ -687,6 +689,8 @@ def main(argv: list[str] | None = None) -> None:
             print(f"  - {repository.described}: {fetched}; {', '.join(sorted(set(repository.paths)))}")
         return
     for connection in config.connections.values():  # said where the server's log is read
+        for note in connection.notes:
+            print(f"semantic-warehouse-mcp: {connection.name}: note: {note}", file=sys.stderr)
         if connection.left_out:
             gone = ", ".join(connection.left_out)
             print(f"semantic-warehouse-mcp: {connection.name}: left out, no table of theirs: {gone}", file=sys.stderr)

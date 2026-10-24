@@ -56,7 +56,7 @@ def test_a_good_configuration_and_its_defaults(shop_path):
         (GOOD.replace("name: shop", "name: Shop DB"), 'connections[0] "Shop DB" → name: string should match pattern'),
         (
             GOOD.replace("engine: duckdb", "engine: oracle"),
-            "engine: 'oracle' is not supported (supported: clickhouse, duckdb)",
+            "engine: 'oracle' is not supported (supported: clickhouse, duckdb, postgres)",
         ),
         (GOOD.replace("    engine: duckdb\n", ""), 'connections[0] "shop" → engine: required'),
         (GOOD.replace("    path: shop.duckdb\n", ""), 'connections[0] "shop" → path: required'),
