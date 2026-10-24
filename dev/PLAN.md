@@ -53,6 +53,9 @@ The engine production work runs on (the author, 2026-10-24) — moved up from "t
       against the team's own tag rules.
 - [ ] ClickHouse users with `readonly=1` (found on a real installation, 2026-10-24): such a user may not change a
       limit, so the adapter's per-query limits are refused — decide and build (`dev/DECISIONS.md`).
+- [ ] ClickHouse before 24.3 (a real installation runs 22.11, 2026-10-24): the adapter's own reading of a query is
+      `EXPLAIN QUERY TREE`, which older servers lack, so `check()` refuses them — decide what reads a query there
+      (`EXPLAIN AST`, `EXPLAIN SYNTAX`, …), with a container of that version in the tests.
 - [ ] Skills folders (`list_skills`, `get_skill`); context and skills read straight from a git repository.
 - [ ] The dialect question settled (ANSI SQL translated by sqlglot, engine variants in `custom_extensions`) and
       written in `DECISIONS.md`.
