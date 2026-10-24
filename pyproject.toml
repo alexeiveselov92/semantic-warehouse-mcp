@@ -1,0 +1,39 @@
+[project]
+name = "warehouse-mcp"
+version = "0.0.1"
+description = "A read-only MCP server for SQL databases with a semantic layer in an open format (Apache Ossie), metrics, your own context and skills — for any database and any MCP client."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+authors = [{ name = "Aleksei Veselov" }]
+keywords = ["mcp", "model-context-protocol", "sql", "semantic-layer", "ossie", "metrics", "ai-agents"]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Database",
+]
+dependencies = ["mcp>=2.3,<3"]
+
+[project.urls]
+Repository = "https://github.com/alexeiveselov92/warehouse-mcp"
+
+[project.scripts]
+warehouse-mcp = "warehouse_mcp.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

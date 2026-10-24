@@ -1,0 +1,28 @@
+# A DRAFT of the configuration (docs/DESIGN.md) — not read by the server yet. A made-up shop; made-up names only.
+# Secrets are named by the environment variable that holds them, never written here.
+
+connections:
+  - name: shop
+    engine: clickhouse
+    url: https://clickhouse.example.com:8443
+    user_env: SHOP_DB_USER                # a read-only user
+    password_env: SHOP_DB_PASSWORD
+    readable: ["marts.*", "dictionaries.*"]
+    large_tables:
+      - { table: "raw.events", bound_by: event_date }
+    limits: { rows: 500, seconds: 30 }
+
+  - name: billing
+    engine: postgres
+    url: postgresql://db.example.com:5432/billing
+    user_env: BILLING_DB_USER
+    password_env: BILLING_DB_PASSWORD
+    readable: ["public.invoices", "public.plans"]
+
+semantic_models: ["semantic/*.yaml"]      # Apache Ossie documents
+context: ["context/"]                     # documents an agent reads with the data
+skills: ["skills/"]                       # folders holding a SKILL.md each
+query_sets: ["queries/*.yaml"]            # saved, parameterised SQL
+
+limits:
+  answer_characters: 40000                # clients cut long answers; a cut answer says so

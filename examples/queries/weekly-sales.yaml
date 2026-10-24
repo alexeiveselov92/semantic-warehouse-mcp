@@ -1,0 +1,21 @@
+# A DRAFT of a saved query set — a dashboard's substance without the drawing (docs/DESIGN.md). Made-up shop.
+name: weekly-sales
+description: Revenue and paying customers by day, for one country or all.
+parameters:
+  - { name: since, type: date, default: "today - 7" }
+  - { name: country, type: string, default: null }
+queries:
+  - name: revenue_by_day
+    connection: shop
+    sql: >-
+      SELECT o.order_date, o.currency, sum(o.amount - o.refunded_amount) AS revenue
+      FROM marts.orders AS o JOIN marts.customers AS c USING (customer_id)
+      WHERE o.order_date >= {since} AND ({country} IS NULL OR c.country = {country})
+      GROUP BY o.order_date, o.currency ORDER BY o.order_date
+  - name: paying_customers_by_day
+    connection: shop
+    sql: >-
+      SELECT o.order_date, count(DISTINCT o.customer_id) AS paying_customers
+      FROM marts.orders AS o JOIN marts.customers AS c USING (customer_id)
+      WHERE o.order_date >= {since} AND ({country} IS NULL OR c.country = {country})
+      GROUP BY o.order_date ORDER BY o.order_date

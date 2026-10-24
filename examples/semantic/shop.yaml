@@ -1,0 +1,92 @@
+# A made-up shop's semantic model in Apache Ossie (https://ossie.apache.org/) — an example, not real data.
+# `custom_extensions` carries what is the shop's own: here, where the code that writes each table lives.
+# Valid against Ossie's schema at 0.2.0.dev0 (checked 2026-10-24; docs/DECISIONS.md, "Which Ossie").
+version: "0.2.0.dev0"
+name: shop
+description: Orders and customers of a made-up online shop.
+ai_context:
+  instructions: >-
+    Revenue is net of refunds. A day is a calendar day in UTC. Never add revenue of different currencies — group by
+    currency.
+datasets:
+  - name: orders
+    source: marts.orders
+    primary_key: [order_id]
+    description: One row per paid order.
+    ai_context:
+      synonyms: [purchases, sales]
+    fields:
+      - name: order_id
+        expression:
+          dialects:
+            - dialect: ANSI_SQL
+              expression: order_id
+        datatype: String
+      - name: order_date
+        expression:
+          dialects:
+            - dialect: ANSI_SQL
+              expression: order_date
+        dimension:
+          is_time: true
+        datatype: Date
+      - name: customer_id
+        expression:
+          dialects:
+            - dialect: ANSI_SQL
+              expression: customer_id
+        datatype: String
+      - name: currency
+        expression:
+          dialects:
+            - dialect: ANSI_SQL
+              expression: currency
+        datatype: String
+      - name: amount
+        expression:
+          dialects:
+            - dialect: ANSI_SQL
+              expression: amount - refunded_amount
+        description: The amount paid, net of refunds.
+        datatype: Decimal
+    custom_extensions:
+      - vendor_name: COMMON
+        data: '{"written_by": "https://github.com/acme/shop-backend/blob/main/billing/order_paid.go", "owner": "billing team"}'
+  - name: customers
+    source: marts.customers
+    primary_key: [customer_id]
+    description: One row per customer.
+    fields:
+      - name: customer_id
+        expression:
+          dialects:
+            - dialect: ANSI_SQL
+              expression: customer_id
+        datatype: String
+      - name: country
+        expression:
+          dialects:
+            - dialect: ANSI_SQL
+              expression: country
+        datatype: String
+relationships:
+  - name: orders_to_customers
+    from: orders
+    to: customers
+    from_columns: [customer_id]
+    to_columns: [customer_id]
+metrics:
+  - name: revenue
+    expression:
+      dialects:
+        - dialect: ANSI_SQL
+          expression: SUM(orders.amount)
+    description: Revenue net of refunds, in the order's currency.
+    ai_context:
+      synonyms: [sales, turnover]
+  - name: paying_customers
+    expression:
+      dialects:
+        - dialect: ANSI_SQL
+          expression: COUNT(DISTINCT orders.customer_id)
+    description: Customers with at least one paid order.
