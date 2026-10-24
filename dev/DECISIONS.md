@@ -154,3 +154,44 @@ engine's own reading is `EXPLAIN QUERY TREE`, whose table nodes are held to the 
 sees `x IN (db.table)` as a table where sqlglot sees a column. Dictionaries are checked, not denied: the guard reads
 the dictionary's name from `dictGet('db.dict', …)` and checks it against `readable`. Tested against a real ClickHouse
 in a container (CI: a service container).
+
+## 2026-10-24 · Semantic models belong to a connection, are checked once at start and held to it
+
+`semantic_models` is a connection's key: each model describes that connection's tables. `vocabularies` sit at the top
+of the configuration, one per `vendor_name` for the whole server — a team's keys mean the same on every connection. A
+model is read and checked once, at start, as a whole (its schema, Ossie's rules, its connection, its own metadata), so
+an edit is served after a restart — unlike a context document, which is read anew on every call: a model checked
+against the database cannot be half-valid. A dataset's `source` is held to its connection: a table name must be
+readable and exist there, a query (`SELECT` / `WITH`) must pass the guard as an agent's query would, anything else is
+refused — a model is never a way around `readable`. Ossie 0.1.1 is read unwrapped, its closed `vendor_name` list kept:
+a vendor of one's own needs 0.2.0.dev0.
+
+## 2026-10-24 · Semantic answers: as written, lists short, made smaller in a fixed order
+
+Lists (`list_datasets`, `list_metrics`) show a description's first line (at most 200 characters, `…` when there is
+more), synonyms, and only the own metadata its vocabulary marks `in_lists` — the rest is one `describe_…` away. A
+vocabulary's definitions come beside an answer for the values it shows, not the whole list. An answer too long for
+`answer_characters` is made smaller in a fixed order, each step named in `note`: list items left out (from the end);
+in `describe_dataset`, before any field, `other_columns` to names, then `other_columns`, `relationships`, `metrics`,
+`vocabulary` left out; last, the longest values cut, each ending in `…` (`truncated_by: long_values`) — and an answer
+that cannot fit even so says only that. Nothing is reworded to fit.
+
+## 2026-10-24 · Every file read as written
+
+A file the server reads — the configuration, a model, a vocabulary — is read the way its author meant it: only
+`true`/`false` are booleans (YAML 1.2; `no`, `on`, `yes` stay text), a date stays its text, a key written twice or a
+list as a key is refused, aliases may not expand past a million values, the file must be UTF-8. A model holds only
+what JSON can (no sets, no `.inf`, no two keys reading as one), and a JSON string's numbers stay exact. An error names
+the line and column, never the line, and a password inside a URL is redacted from every problem; a value under a
+secret-like key is never repeated.
+
+## 2026-10-24 · The dbt importer writes an Ossie file; MetricFlow's metrics come through Ossie's own converter
+
+**The author** (the agent's three recommendations, accepted). `semantic-warehouse-mcp import-dbt` reads a dbt
+project's `manifest.json` and writes an Ossie document, which the server then serves like any model — reviewable, its
+changes visible, checked by `--check` — rather than the server reading the manifest at start. A dataset's fields are
+the columns the dbt project describes; the rest of a table's columns are already served live (`other_columns`).
+Which tables, under which `vendor_name` `meta` and tags go, and which of a team's keys stand for Ossie's own places (a
+tag meaning the time column) are the importer's configuration — the team's; the code reads only what is dbt's own
+(descriptions, `constraints`, `relationships` tests). Metrics defined in MetricFlow are not imported a second way:
+Ossie's converter (`ossie-dbt msi-to-ossie`, apache/ossie-converters) does it, and the guide points to it.

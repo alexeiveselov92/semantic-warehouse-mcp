@@ -5,26 +5,29 @@ from __future__ import annotations
 import difflib
 import pathlib
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
 from typing import Annotated, Any
 
-import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from . import files, guard, semantic, vocabulary
 from .adapters import ENGINES, Adapter, AdapterError, adapter_class
 from .context import ContextError, documents
+from .semantic import Model
+from .vocabulary import Vocabulary
 
 # A readable pattern or a large table: schema.table, either part may hold * or ? globs.
 TWO_PARTS = re.compile(r"^[^.\s]+\.[^.\s]+$")
 
 
 class ConfigError(Exception):
-    """Every problem found, one per line, each naming its entry."""
+    """Every problem found, one per line, each naming its entry — a password written inside a URL left out."""
 
     def __init__(self, source: str, problems: list[str]) -> None:
         self.source = source
-        self.problems = problems
+        self.problems = [files.redact(problem) for problem in problems]
+        problems = self.problems
         lines = "\n".join(f"  - {problem}" for problem in problems)
         noun = "problem" if len(problems) == 1 else "problems"
         super().__init__(f"the configuration {source} has {len(problems)} {noun}:\n{lines}")
@@ -56,6 +59,7 @@ class ConnectionEntry(BaseModel):
     limits: ConnectionLimits = ConnectionLimits()
     instructions: str | None = None
     context: list[str] = []
+    semantic_models: list[str] = []
 
 
 class ServerLimits(_Strict):
@@ -67,6 +71,7 @@ class ConfigFile(_Strict):
     limits: ServerLimits = ServerLimits()
     instructions: str | None = None
     context: list[str] = []
+    vocabularies: list[str] = []
 
 
 @dataclass(frozen=True)
@@ -78,8 +83,10 @@ class Connection:
     large_tables: tuple[LargeTableEntry, ...]
     limits: ConnectionLimits
     adapter: Adapter
+    rules: guard.Rules
     instructions: str | None = None
     context: tuple[pathlib.Path, ...] = ()
+    models: tuple[Model, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -89,25 +96,8 @@ class Config:
     limits: ServerLimits
     instructions: str | None = None
     context: tuple[pathlib.Path, ...] = ()
-
-
-class _NoDuplicateKeysLoader(yaml.SafeLoader):
-    """YAML keeps the last of two equal keys silently; a configuration must not."""
-
-
-def _mapping_without_duplicates(loader: yaml.SafeLoader, node: yaml.MappingNode) -> dict[Any, Any]:
-    seen: set[Any] = set()
-    for key_node, _ in node.value:
-        key = loader.construct_object(key_node)
-        if key in seen:
-            raise yaml.constructor.ConstructorError(
-                None, None, f"the key {key!r} appears twice in one mapping", key_node.start_mark
-            )
-        seen.add(key)
-    return loader.construct_mapping(node)
-
-
-_NoDuplicateKeysLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _mapping_without_duplicates)
+    # By vendor name, one for the whole server: a vendor's keys mean the same in every model that uses them.
+    vocabularies: dict[str, Vocabulary] = field(default_factory=dict)
 
 
 def load(path: str | pathlib.Path) -> Config:
@@ -115,13 +105,9 @@ def load(path: str | pathlib.Path) -> Config:
     path = pathlib.Path(path)
     source = str(path)
     try:
-        text = path.read_text(encoding="utf-8")
-    except OSError as error:
-        raise ConfigError(source, [f"cannot read the file: {error.strerror or error}"]) from error
-    try:
-        data = yaml.load(text, Loader=_NoDuplicateKeysLoader)
-    except yaml.YAMLError as error:
-        raise ConfigError(source, [f"not valid YAML: {error}"]) from error
+        data = files.load_file(path)
+    except files.FileProblem as problem:
+        raise ConfigError(source, [str(problem)]) from problem
     return parse(data, source=source, base_dir=path.resolve().parent)
 
 
@@ -134,7 +120,7 @@ def parse(data: Any, *, source: str, base_dir: pathlib.Path, reach: bool = True)
     try:
         parsed = ConfigFile.model_validate(data)
     except ValidationError as error:
-        problems.extend(_describe(error, data))
+        problems.extend(files.describe(error, data, ConfigFile))
 
     # A connection's keys are the common ones and its engine's: checked here, so a typo is named with the rest.
     raw_connections = data.get("connections")
@@ -143,7 +129,7 @@ def parse(data: Any, *, source: str, base_dir: pathlib.Path, reach: bool = True)
         if not isinstance(raw, dict):
             settings.append(None)
             continue
-        where = _location(("connections", index), data)
+        where = files.location(("connections", index), data)
         cls = adapter_class(raw["engine"]) if isinstance(raw.get("engine"), str) else None
         engine_keys = list(cls.settings_model.model_fields) if cls else []
         known = list(ConnectionEntry.model_fields) + engine_keys
@@ -161,21 +147,25 @@ def parse(data: Any, *, source: str, base_dir: pathlib.Path, reach: bool = True)
         try:
             settings.append(cls.settings_model.model_validate({k: v for k, v in raw.items() if k in engine_keys}))
         except ValidationError as error:
-            problems.extend(f"{where} → {line}" for line in _describe(error, raw))
+            problems.extend(f"{where} → {line}" for line in files.describe(error, raw, cls.settings_model))
             settings.append(None)
     if parsed is None or problems:
         raise ConfigError(source, problems)
 
+    vocabularies, vocabulary_problems = _vocabularies(parsed.vocabularies, base_dir)
+    problems.extend(vocabulary_problems)
     connections: dict[str, Connection] = {}
     for index, entry in enumerate(parsed.connections):
-        where = _location(("connections", index), data)
+        where = files.location(("connections", index), data)
         if entry.name in connections:
             problems.append(f"{where}: another connection has this name")
             continue
         table_problems = _check_tables(entry)
         context_paths, context_problems = _context(entry.context, base_dir)
-        if table_problems or context_problems:
-            problems.extend(f"{where} → {problem}" for problem in table_problems + context_problems)
+        models, model_problems = _models(entry.semantic_models, base_dir)
+        entry_problems = table_problems + context_problems + model_problems
+        if entry_problems:
+            problems.extend(f"{where} → {problem}" for problem in entry_problems)
             continue
         adapter = adapter_class(entry.engine)(settings[index], base_dir)
         if reach:
@@ -184,6 +174,11 @@ def parse(data: Any, *, source: str, base_dir: pathlib.Path, reach: bool = True)
             except AdapterError as error:
                 problems.append(f"{where}: {error}")
                 continue
+        rules = _rules(entry, adapter)  # after `check`, which may learn the connection's own catalog
+        binding_problems = _bind(models, rules, adapter if reach else None) + _own_metadata(models, vocabularies)
+        if binding_problems:
+            problems.extend(f"{where} → semantic_models → {problem}" for problem in binding_problems)
+            continue
         connections[entry.name] = Connection(
             name=entry.name,
             engine=entry.engine,
@@ -192,8 +187,10 @@ def parse(data: Any, *, source: str, base_dir: pathlib.Path, reach: bool = True)
             large_tables=tuple(entry.large_tables),
             limits=entry.limits,
             adapter=adapter,
+            rules=rules,
             instructions=entry.instructions,
             context=context_paths,
+            models=tuple(models),
         )
     server_context, server_context_problems = _context(parsed.context, base_dir)
     problems.extend(server_context_problems)
@@ -205,6 +202,21 @@ def parse(data: Any, *, source: str, base_dir: pathlib.Path, reach: bool = True)
         limits=parsed.limits,
         instructions=parsed.instructions,
         context=server_context,
+        vocabularies=vocabularies,
+    )
+
+
+def _rules(entry: ConnectionEntry, adapter: Adapter) -> guard.Rules:
+    """What the guard enforces on a connection: its configuration, and its engine's dialect and functions."""
+    return guard.Rules(
+        dialect=adapter.dialect,
+        default_schema=adapter.default_schema,
+        readable=tuple(entry.readable),
+        large_tables=tuple(guard.LargeTable(large.table, large.bound_by) for large in entry.large_tables),
+        catalog=adapter.catalog,
+        allowed_table_functions=adapter.allowed_table_functions,
+        denied_functions=adapter.denied_functions,
+        table_reading_functions=adapter.table_reading_functions,
     )
 
 
@@ -220,6 +232,125 @@ def _context(entries: list[str], base_dir: pathlib.Path) -> tuple[tuple[pathlib.
         except ContextError as error:
             problems.append(f"context: {error}")
     return paths, problems
+
+
+def _vocabularies(entries: list[str], base_dir: pathlib.Path) -> tuple[dict[str, Vocabulary], list[str]]:
+    """Vocabulary files (and folders of them) relative to the configuration's folder, by vendor name. A vendor declared
+    twice is refused."""
+    found: dict[str, Vocabulary] = {}
+    problems: list[str] = []
+    for path, file in _files(entries, base_dir, "vocabularies", problems):
+        read, read_problems = vocabulary.read(path, file)
+        problems.extend(f"vocabularies → {problem}" for problem in read_problems)
+        if read is None:
+            continue
+        if read.vendor_name in found:
+            problems.append(
+                f"vocabularies: {file} declares the vendor {read.vendor_name!r}, as {found[read.vendor_name].file} "
+                "does — one vocabulary per vendor"
+            )
+            continue
+        found[read.vendor_name] = read
+    return found, problems
+
+
+def _models(entries: list[str], base_dir: pathlib.Path) -> tuple[list[Model], list[str]]:
+    """A connection's semantic models: files and folders relative to the configuration's folder, each checked against
+    its version's schema. No two models of a connection may share a name — agents name a model by it."""
+    models: list[Model] = []
+    problems: list[str] = []
+    for path, file in _files(entries, base_dir, "semantic_models", problems):
+        read, read_problems = semantic.read(path, file)
+        problems.extend(f"semantic_models → {problem}" for problem in read_problems)
+        for model in read:
+            same = [other.where for other in models if other.name == model.name]
+            if same:
+                problems.append(f"semantic_models: two models are named {model.name!r} ({same[0]}; {model.where})")
+            else:
+                models.append(model)
+    return models, problems
+
+
+def _files(entries: list[str], base_dir: pathlib.Path, key: str, problems: list[str]) -> list[tuple[pathlib.Path, str]]:
+    """The files of a list of files and folders, each with the name it goes by in a problem (its path as written in
+    the configuration, and inside a folder). A missing entry is a problem, and so is a folder with no file to read."""
+    found = []
+    for entry in entries:
+        path = (base_dir / entry).resolve()
+        if not path.exists():
+            problems.append(f"{key}: {entry!r} does not exist ({path})")
+            continue
+        inside = semantic.files_of((path,))
+        if not inside:
+            problems.append(f"{key}: {entry!r} holds no .yaml, .yml or .json file ({path})")
+        for file in inside:
+            name = entry if file == path else f"{entry.rstrip('/')}/{file.relative_to(path).as_posix()}"
+            found.append((file, name))
+    return found
+
+
+def _bind(models: list[Model], rules: guard.Rules, adapter: Adapter | None) -> list[str]:
+    """Each dataset's source on its connection: a table it may read (and, with `adapter`, one that exists), or a query
+    the guard passes."""
+    problems = []
+    stored: set[tuple[str, str]] | None = None
+    for model in models:
+        for index, dataset in enumerate(model.document["datasets"]):
+            where = f"{model.where} → {files.location(('datasets', index), model.document)} → source"
+            source = dataset["source"]
+            if not semantic.is_query(source) and not semantic.is_name(source):
+                problems.append(
+                    f"{where}: {source[:80]!r} is neither a table name (schema.table) nor a query starting with SELECT "
+                    "or WITH"
+                )
+                continue
+            try:
+                if semantic.is_query(source):
+                    guard.check(source, rules)
+                    continue
+                schema, table = guard.resolve_table(source, rules)
+            except guard.Refused as refusal:
+                problems.append(f"{where}: {refusal.message} ({refusal.code})")
+                continue
+            if adapter is None:
+                continue
+            if stored is None:
+                try:
+                    stored = {
+                        (guard.stored_name(t.schema, rules), guard.stored_name(t.name, rules)) for t in adapter.tables()
+                    }
+                except AdapterError as error:
+                    return [f"the tables of the connection cannot be listed: {error}"]
+            if (schema, table) not in stored:
+                problems.append(f"{where}: there is no table or view {schema}.{table} on the connection")
+    return problems
+
+
+def _own_metadata(models: list[Model], vocabularies: dict[str, Vocabulary]) -> list[str]:
+    """Each custom extension of a vendor with a vocabulary, checked against it; others pass as written — but not one
+    whose vendor name differs from a declared one only in case or spaces, which would pass unchecked by a slip."""
+    problems = []
+    loosely = {vendor.casefold().strip(): vendor for vendor in vocabularies}
+    for model in models:
+        for place, level, extension in semantic.extensions(model.document):
+            vendor = extension["vendor_name"]
+            declared = vocabularies.get(vendor)
+            if declared is None:
+                meant = loosely.get(vendor.casefold().strip())
+                if meant is not None:
+                    where = f"{model.where} → {files.location(place, model.document)} → vendor_name"
+                    problems.append(
+                        f"{where}: {vendor!r} is not {meant!r}, the vendor a vocabulary declares — write it exactly, "
+                        "or its data passes unchecked"
+                    )
+                continue
+            where = f"{model.where} → {files.location(place, model.document)} ({declared.vendor_name})"
+            data = extension["data"]
+            if isinstance(data, str):
+                problems.append(f"{where}: the data is not JSON, so {declared.file} cannot check it")
+                continue
+            problems.extend(f"{where} → {problem}" for problem in declared.check(data, level))
+    return problems
 
 
 def _check_tables(entry: ConnectionEntry) -> list[str]:
@@ -239,59 +370,3 @@ def _check_tables(entry: ConnectionEntry) -> list[str]:
         ):
             problems.append(f"large_tables: {large.table!r} is not covered by any readable pattern")
     return problems
-
-
-# A value under one of these keys may be a secret written by mistake: an error never repeats it.
-SECRET_KEY = re.compile(r"(_env$|password|secret|token|url)", re.IGNORECASE)  # a URL may hold a password
-
-
-def _describe(error: ValidationError, data: Any) -> list[str]:
-    """Pydantic's errors in the configuration's own terms: where, what is wrong, and a likely fix for a typo."""
-    lines = []
-    for item in error.errors():
-        location = _location(item["loc"], data)
-        kind = item["type"]
-        if kind == "extra_forbidden":
-            key = str(item["loc"][-1])
-            known = _known_keys(item["loc"][:-1])
-            hint = difflib.get_close_matches(key, known, n=1)
-            suffix = f" — did you mean {hint[0]!r}?" if hint else (f" (known: {', '.join(known)})" if known else "")
-            lines.append(f"{location}: unknown key{suffix}")
-        elif kind == "missing":
-            lines.append(f"{location}: required")
-        else:
-            message = item["msg"][0].lower() + item["msg"][1:]
-            secret = any(isinstance(step, str) and SECRET_KEY.search(step) for step in item["loc"])
-            lines.append(f"{location}: {message}" + ("" if secret else f" (got {item['input']!r})"))
-    return lines
-
-
-def _location(loc: tuple[Any, ...], data: Any) -> str:
-    parts: list[str] = []
-    node = data
-    for step in loc:
-        if isinstance(step, int):
-            item = node[step] if isinstance(node, list) and step < len(node) else None
-            name = item.get("name") if isinstance(item, dict) else None
-            parts[-1] = f"{parts[-1]}[{step}]" + (f' "{name}"' if isinstance(name, str) else "")
-            node = item
-        else:
-            parts.append(str(step))
-            node = node.get(step) if isinstance(node, dict) else None
-    return " → ".join(parts) if parts else "the file"
-
-
-def _known_keys(loc: tuple[Any, ...]) -> list[str]:
-    model: Any = ConfigFile
-    for step in loc:
-        if isinstance(step, int):
-            continue
-        field = model.model_fields.get(step)
-        if field is None:
-            return []
-        annotation = field.annotation
-        args = getattr(annotation, "__args__", ())
-        model = next((a for a in (annotation, *args) if isinstance(a, type) and issubclass(a, BaseModel)), None)
-        if model is None:
-            return []
-    return list(model.model_fields)

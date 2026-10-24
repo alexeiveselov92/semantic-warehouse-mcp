@@ -7,6 +7,7 @@ import duckdb
 import pytest
 from mcp import Client
 
+from semantic_warehouse_mcp import answers
 from semantic_warehouse_mcp.server import build_server
 
 pytestmark = pytest.mark.anyio
@@ -140,6 +141,19 @@ async def test_a_long_answer_is_cut_to_fit_and_says_so(shop_config):
     assert answer["row_count"] == len(answer["rows"])
     assert answer["truncated_by"] == ["answer_characters"]
     assert f"Only the first {answer['row_count']} of 100 rows fit" in answer["note"]
+
+
+def test_long_values_are_cut_to_fit_and_a_cut_that_cannot_fit_ends():
+    cut = json.loads(answers.render({"values": ["z" * 300] * 10}, "items", [], 1000, ""))
+    assert len(answers.dumps(cut)) <= 1000 and cut["truncated_by"] == ["long_values"]
+    assert all(value == "z" * 300 or value.endswith("…") for value in cut["values"]) and "z" * 300 in cut["values"]
+    # values already as short as a cut leaves them cannot be cut shorter: the answer says so, and the cutting ends
+    too_many = {"values": ["x" * 40 + "…"] * 100, "long": "y" * 500}
+    assert json.loads(answers.render(too_many, "items", [], 1000, "")) == {
+        "truncated": True,
+        "truncated_by": ["answer_characters"],
+        "note": "The answer does not fit in 1000 characters, even cut. Ask for less.",
+    }
 
 
 async def test_a_large_table_must_be_bounded(shop_config):

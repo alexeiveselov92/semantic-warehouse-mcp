@@ -4,6 +4,7 @@
 
 instructions: |                              # the team's own rules, for every connection — served as written
   Dates are UTC. Never add amounts of different currencies: group by currency.
+vocabularies: [vocabulary/acme.yaml]        # the team's own metadata keys, declared — checked at start
 
 connections:
   - name: shop
@@ -17,12 +18,12 @@ connections:
     instructions: |                           # for this connection only
       Revenue is net of refunds: amount - refunded_amount.
     context: [context/]                       # documents about this database, read by agents when they need them
+    semantic_models: [semantic/]              # Apache Ossie documents: what its tables mean, its metrics
 
 limits:
   answer_characters: 40000                    # clients cut long answers; a cut answer says so
 
 # ClickHouse: see config.clickhouse.example.yaml. Planned, each with its milestone (dev/PLAN.md) — not read yet:
 #
-# semantic_models: ["semantic/*.yaml"]        # Apache Ossie documents
 # skills: ["skills/"]                         # folders holding a SKILL.md each
 # query_sets: ["queries/*.yaml"]              # saved, parameterised SQL

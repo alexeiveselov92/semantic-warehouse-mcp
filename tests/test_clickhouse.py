@@ -267,7 +267,7 @@ def test_a_url_holding_a_password_is_refused_unrepeated(tmp_path):
     assert "hunter2" not in str(error.value)
 
 
-def test_the_example_configuration_holds(tmp_path):
+def test_the_example_configuration_holds():
     import pathlib
 
     import yaml
@@ -275,5 +275,37 @@ def test_the_example_configuration_holds(tmp_path):
     from semantic_warehouse_mcp.config import parse
 
     path = pathlib.Path(__file__).resolve().parent.parent / "examples" / "config.clickhouse.example.yaml"
-    config = parse(yaml.safe_load(path.read_text()), source=str(path), base_dir=tmp_path, reach=False)
+    config = parse(yaml.safe_load(path.read_text()), source=str(path), base_dir=path.parent, reach=False)
     assert config.connections["warehouse"].adapter.default_schema == "marts"
+    assert [model.name for model in config.connections["warehouse"].models] == ["shop"]
+
+
+MODEL = """
+version: "0.2.0.dev0"
+name: warehouse
+datasets:
+  - name: orders
+    source: {source}
+    fields:
+      - name: order_id
+        expression: {{dialects: [{{dialect: ANSI_SQL, expression: order_id}}]}}
+      - name: Order_ID
+        expression: {{dialects: [{{dialect: ANSI_SQL, expression: Order_ID}}]}}
+"""
+
+
+@pytest.mark.anyio
+async def test_a_semantic_model_over_clickhouse(clickhouse_url, as_user, tmp_path):  # noqa: F811
+    config = CONFIG.format(url=clickhouse_url) + "    semantic_models: [model.yaml]\n"
+    (tmp_path / "model.yaml").write_text(MODEL.format(source="orders"))  # the connection's default database
+    answer, _ = await call(load(write_config(tmp_path, config)), "describe_dataset", dataset="orders")
+    assert answer["table"] == {"name": "swm_marts.orders", "kind": "table", "comment": "One row per paid order."}
+    order_id, other = answer["fields"]
+    assert order_id["column"] == {"type": "String", "nullable": False, "comment": "The order."}
+    assert "column" not in other  # ClickHouse's names are case-sensitive: Order_ID is not order_id
+    assert answer["other_columns"][0]["name"] == "order_date"
+
+    (tmp_path / "model.yaml").write_text(MODEL.format(source="swm_marts.nothing"))
+    with pytest.raises(ConfigError) as error:
+        load(write_config(tmp_path, config))
+    assert error.value.problems[0].endswith("source: there is no table or view swm_marts.nothing on the connection")

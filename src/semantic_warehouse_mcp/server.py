@@ -12,9 +12,10 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
-from . import __version__, answers, context, guard
+from . import __version__, answers, context, guard, semantic
 from .adapters import AdapterError, TimedOut
 from .config import Config, ConfigError, Connection, load
+from .semantic import Model
 
 # Every tool of this server carries these annotations; a test holds it.
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False)
@@ -23,9 +24,13 @@ CONFIG_VARIABLE = "SEMANTIC_WAREHOUSE_MCP_CONFIG"
 
 INSTRUCTIONS = (
     "semantic-warehouse-mcp answers questions about data in SQL databases, and never changes them. "
-    "Start with `list_connections`, then `list_tables` and `describe_table` to see what a connection holds; "
-    "`run_query` runs one read-only SELECT. Each query is checked first: a refusal says why and how to fix it. "
-    "A large table must be bounded by its column (shown in `list_connections` and `describe_table`). "
+    "Start with `list_connections`. Where a connection has a semantic model, find the data in it first: "
+    "`list_datasets` and `describe_dataset` (what each table means, its fields, keys and relationships, the team's own "
+    "metadata with what its values mean), `list_metrics` and `describe_metric` (how a number is defined) — use a "
+    "metric's definition rather than writing your own. `list_tables` and `describe_table` show every readable table "
+    "as the database holds it. `run_query` runs one read-only SELECT. Each query is checked first: a refusal says why "
+    "and how to fix it. A large table must be bounded by its column (shown in `list_connections`, `describe_dataset` "
+    "and `describe_table`). "
     "The team that runs this server may give instructions (below, and in `list_connections`) and context documents "
     "(`list_context`, `get_context`) — read the ones that bear on the question before querying. "
     "Every answer carries the SQL as it ran and the time — cite them."
@@ -43,28 +48,14 @@ def instructions(config: Config | None) -> str:
     return "\n\n".join(parts)
 
 
-def rules(connection: Connection) -> guard.Rules:
-    """What the guard enforces on a connection: its configuration, and its engine's dialect and functions."""
-    adapter = connection.adapter
-    return guard.Rules(
-        dialect=adapter.dialect,
-        default_schema=adapter.default_schema,
-        readable=connection.readable,
-        large_tables=tuple(guard.LargeTable(large.table, large.bound_by) for large in connection.large_tables),
-        catalog=adapter.catalog,
-        allowed_table_functions=adapter.allowed_table_functions,
-        denied_functions=adapter.denied_functions,
-        table_reading_functions=adapter.table_reading_functions,
-    )
-
-
 def build_server(config: Config | None = None) -> MCPServer:
     """The server with its tools — built fresh, so tests and transports each get their own."""
     server = MCPServer(name="semantic-warehouse-mcp", version=__version__, instructions=instructions(config))
     connections = config.connections if config else {}
     server_context = config.context if config else ()
+    vocabularies = config.vocabularies if config else {}
     answer_characters = config.limits.answer_characters if config else 40_000
-    connection_rules = {name: rules(connection) for name, connection in connections.items()}
+    connection_rules = {name: connection.rules for name, connection in connections.items()}
 
     def pick(name: str | None) -> Connection:
         names = ", ".join(connections) or "none configured"
@@ -82,7 +73,7 @@ def build_server(config: Config | None = None) -> MCPServer:
         return {
             "name": "semantic-warehouse-mcp",
             "version": __version__,
-            "status": "pre-alpha: tables and read-only queries; the semantic layer is being built",
+            "status": "pre-alpha: tables, read-only queries, semantic models in Apache Ossie; metrics are being built",
             "read_only": True,
         }
 
@@ -90,8 +81,8 @@ def build_server(config: Config | None = None) -> MCPServer:
     def list_connections() -> str:
         """The databases this server reads. For each connection: its name, engine and description; the team's
         instructions for it, as written; which tables are readable (schema.table patterns); which large tables a query
-        must bound by which column; the limits on rows and seconds per query; the names of its context documents
-        (read them with `get_context`)."""
+        must bound by which column; the limits on rows and seconds per query; the names of its semantic models (their
+        datasets in `list_datasets`) and of its context documents (read them with `get_context`)."""
         items = []
         for connection in connections.values():
             item = {"name": connection.name, "engine": connection.engine}
@@ -105,6 +96,8 @@ def build_server(config: Config | None = None) -> MCPServer:
                     {"table": large.table, "bound_by": large.bound_by} for large in connection.large_tables
                 ]
             item["limits"] = {"rows": connection.limits.rows, "seconds": connection.limits.seconds}
+            if connection.models:
+                item["semantic_models"] = [model.name for model in connection.models]
             if connection.context:
                 item["context"] = list(context_documents(connection.name))
             items.append(item)
@@ -174,6 +167,216 @@ def build_server(config: Config | None = None) -> MCPServer:
                 return rendered
             size = size * 9 // 10
 
+    # --- the semantic models ------------------------------------------------------------------------------------------
+
+    def models_of(connection: str | None, model: str | None) -> list[tuple[Connection, Model]]:
+        """The models a semantic tool looks in: of the connection named, or of every one; of the model named, or all."""
+        scope = [pick(connection)] if connection is not None else list(connections.values())
+        found = [(c, m) for c in scope for m in c.models if model is None or m.name == model]
+        if model is not None and not found:
+            names = ", ".join(sorted({m.name for c in scope for m in c.models})) or "none"
+            raise ToolError(f"No semantic model named {model!r}. Models: {names}.")
+        return found
+
+    def one(found: list[tuple], kind: str, name: str, lister: str) -> tuple:
+        """The one (connection, model, dataset or None, node) found by a name, or an error naming every place."""
+        if not found:
+            raise ToolError(f"No {kind} named {name!r}. {lister} shows them.")
+        if len(found) > 1:
+            places = "; ".join(
+                f"model {m.name} on {c.name}" + (f", dataset {home['name']}" if home is not None else "")
+                for c, m, home, _ in found
+            )
+            raise ToolError(f"{name!r} is a {kind} of more than one place ({places}): name the one you mean.")
+        return found[0]
+
+    def definitions(nodes: list[dict]) -> dict:
+        """What the vocabularies say of the own metadata these parts of a model use, by vendor: each key's description,
+        and the definitions of the values used."""
+        found: dict = {}
+        for node in nodes:
+            for extension in node.get("custom_extensions", []):
+                declared = vocabularies.get(extension["vendor_name"])
+                if declared is None:
+                    continue
+                for key, said in declared.definitions(extension["data"]).items():
+                    slot = found.setdefault(declared.vendor_name, {}).setdefault(key, {})
+                    if "description" in said:
+                        slot["description"] = said["description"]
+                    if "values" in said:
+                        slot.setdefault("values", {}).update(said["values"])
+        return found
+
+    def summary(chosen: Connection, model: Model, node: dict, kind: str, **extra) -> dict:
+        """A dataset or a metric for a list: where it is, its name, the first line of its description, its synonyms,
+        and the own metadata its vocabulary shows in lists (`in_lists`), as written."""
+        item = {"connection": chosen.name, "model": model.name, kind: node["name"], **extra}
+        description = semantic.first_line(node.get("description"))
+        if description:
+            item["description"] = description
+        ai_context = node.get("ai_context")
+        if isinstance(ai_context, dict) and ai_context.get("synonyms"):
+            item["synonyms"] = ai_context["synonyms"]
+        shown = []
+        for extension in node.get("custom_extensions", []):
+            declared = vocabularies.get(extension["vendor_name"])
+            data = extension["data"]
+            if declared is None or not isinstance(data, dict):
+                continue
+            kept = {key: value for key, value in data.items() if key in declared.keys and declared.keys[key].in_lists}
+            if kept:
+                shown.append({"vendor_name": extension["vendor_name"], "data": kept})
+        if shown:
+            item["custom_extensions"] = shown
+        return item
+
+    def listing(key: str, items: list[dict], hint: str) -> str:
+        answer: dict = {}
+        if not any(c.models for c in connections.values()):
+            answer["note"] = "No connection has a semantic model; list_tables and describe_table show the tables."
+
+        def vocabulary_of(shown: list[dict]) -> dict:
+            said = definitions(shown)
+            return {"vocabulary": said} if said else {}
+
+        return answers.render(answer, key, items, answer_characters, hint, beside=vocabulary_of)
+
+    @server.tool(annotations=READ_ONLY, structured_output=False)
+    def list_datasets(connection: str | None = None, search: str | None = None) -> str:
+        """The datasets of the semantic models: the tables the team described for agents. For each: its connection
+        and model, its name, its `source` table, the first line of its description (`…` when there is more), its
+        synonyms, and the team's own metadata shown in lists — with what each value means in `vocabulary`. `search`
+        keeps the datasets holding every one of its words, in any case, anywhere in the dataset as written (name,
+        description, fields, own metadata). Read one in full with `describe_dataset`."""
+        words = search.split() if search else []
+        items = [
+            summary(chosen, model, dataset, "dataset", source=dataset["source"])
+            for chosen, model in models_of(connection, None)
+            for dataset in model.document["datasets"]
+            if semantic.matches(dataset, words)
+        ]
+        return listing("datasets", items, "Give `search` or `connection` to list fewer.")
+
+    @server.tool(annotations=READ_ONLY, structured_output=False)
+    def describe_dataset(dataset: str, connection: str | None = None, model: str | None = None) -> str:
+        """One dataset of a semantic model in full, as the team wrote it: its source, keys, description,
+        `ai_context`, its own metadata (`custom_extensions`); its fields, each with its expression — and the live
+        column's type and comment when a field is one column; its own metrics; its relationships. Beside them: the
+        source table as the database holds it now (`table`, with `bound_by` when a query must bound it), its columns
+        no field describes, and what the vocabulary says each own metadata value means. Give `connection` or `model`
+        when two models have a dataset of that name."""
+        found = [
+            (chosen, owner, None, node)
+            for chosen, owner in models_of(connection, model)
+            for node in owner.document["datasets"]
+            if node["name"] == dataset
+        ]
+        chosen, owner, _, node = one(found, "dataset", dataset, "list_datasets")
+        answer: dict = {"connection": chosen.name, "model": owner.name, "dataset": node["name"]}
+        answer |= {key: value for key, value in node.items() if key not in ("name", "fields", "metrics")}
+        columns: list = []
+        if semantic.is_query(node["source"]):
+            answer["table"] = {"note": "the source is a query, not a table"}
+        else:
+            try:
+                schema, name = guard.resolve_table(node["source"], chosen.rules)
+                answer["table"], columns = live_table(chosen, schema, name)
+                if not columns:
+                    answer["table"]["note"] = "there is no such table on the connection now"
+            except (guard.Refused, AdapterError) as error:
+                answer["table"] = {"note": f"the source table cannot be read: {error}"}
+        by_name = {guard.stored_name(column.name, chosen.rules): column for column in columns}
+        fields, described = [], set()
+        for field in node.get("fields", []):
+            item = dict(field)
+            name = semantic.bare_column(field)
+            column = by_name.get(guard.stored_name(name, chosen.rules)) if name else None
+            if column is not None:
+                described.add(column.name)
+                item["column"] = column_item(column, name=False)
+            fields.append(item)
+        if node.get("metrics"):
+            answer["metrics"] = node["metrics"]
+        relationships = [r for r in owner.document.get("relationships", []) if node["name"] in (r["from"], r["to"])]
+        if relationships:
+            answer["relationships"] = relationships
+        other = [column_item(column) for column in columns if column.name not in described]
+        if other:
+            answer["other_columns"] = other
+        said = definitions([node, *node.get("fields", []), *node.get("metrics", []), *relationships])
+        if said:
+            answer["vocabulary"] = said
+        smaller = [
+            ("other_columns", [column["name"] for column in other], "`other_columns` holds names only"),
+            ("other_columns", None, "`other_columns` left out (describe_table shows them)"),
+            ("relationships", None, "`relationships` left out"),
+            ("metrics", None, "`metrics` left out (describe_metric shows them)"),
+            ("vocabulary", None, "`vocabulary` left out"),
+        ]
+        return answers.render_fitting(answer, "fields", fields, answer_characters, "", smaller)
+
+    @server.tool(annotations=READ_ONLY, structured_output=False)
+    def list_metrics(connection: str | None = None, search: str | None = None) -> str:
+        """The metrics of the semantic models: how the team defines its numbers. For each: its connection and model,
+        its name, its `dataset` when it is a dataset's own metric, the first line of its description (`…` when there
+        is more), its synonyms, and the team's own metadata shown in lists — with what each value means in
+        `vocabulary`. `search` keeps the metrics holding every one of its words, in any case, anywhere in the metric as
+        written. Read one in full — its expression — with `describe_metric`."""
+        words = search.split() if search else []
+        items = []
+        for chosen, model in models_of(connection, None):
+            items.extend(
+                summary(chosen, model, metric, "metric")
+                for metric in model.document.get("metrics", [])
+                if semantic.matches(metric, words)
+            )
+            items.extend(
+                summary(chosen, model, metric, "metric", dataset=dataset["name"])
+                for dataset in model.document["datasets"]
+                for metric in dataset.get("metrics", [])
+                if semantic.matches(metric, words)
+            )
+        return listing("metrics", items, "Give `search` or `connection` to list fewer.")
+
+    @server.tool(annotations=READ_ONLY, structured_output=False)
+    def describe_metric(
+        metric: str, connection: str | None = None, model: str | None = None, dataset: str | None = None
+    ) -> str:
+        """One metric in full, as the team wrote it: its expression in each SQL dialect written, description, data
+        type, `ai_context` and own metadata (`custom_extensions`) — with what the vocabulary says each own metadata
+        value means, and the datasets its expression reads: each one's source table, and the fields the expression
+        names with their own expressions (a field may be a calculation over the table's columns, not a column).
+        `dataset` names a dataset's own metric; give `connection` or `model` when two models define a metric of that
+        name."""
+        found = []
+        for chosen, owner in models_of(connection, model):
+            if dataset is None:
+                found.extend((chosen, owner, None, m) for m in owner.document.get("metrics", []) if m["name"] == metric)
+            for home in owner.document["datasets"]:
+                if dataset is None or home["name"] == dataset:
+                    found.extend((chosen, owner, home, m) for m in home.get("metrics", []) if m["name"] == metric)
+        chosen, owner, home, node = one(found, "metric", metric, "list_metrics")
+        answer: dict = {"connection": chosen.name, "model": owner.name, "metric": node["name"]}
+        if home is not None:
+            answer["dataset"] = home["name"]
+        answer |= {key: value for key, value in node.items() if key != "name"}
+        said = definitions([node])
+        if said:
+            answer["vocabulary"] = said
+        sources = {d["name"]: d["source"] for d in owner.document["datasets"]}
+        read = semantic.fields_read(node, owner.document, home)
+        if home is not None:
+            read.setdefault(home["name"], [])
+        items = [
+            {
+                "dataset": name,
+                "source": sources[name],
+                "fields": [{"name": f["name"], "expression": f["expression"]} for f in fields],
+            }
+            for name, fields in read.items()
+        ]
+        return answers.render(answer, "datasets", items, answer_characters, "")
+
     @server.tool(annotations=READ_ONLY, structured_output=False)
     def list_tables(connection: str | None = None) -> str:
         """The readable tables and views of a connection, with their comments as the database holds them. A large
@@ -206,40 +409,46 @@ def build_server(config: Config | None = None) -> MCPServer:
         database holds it — with the table's own comment, and `bound_by` when it is a large table. `table` is
         `schema.table`, or a table of the default schema."""
         chosen = pick(connection)
-        connection_rule = connection_rules[chosen.name]
         try:
-            schema, name = guard.resolve_table(table, connection_rule)
+            schema, name = guard.resolve_table(table, connection_rules[chosen.name])
         except guard.Refused as refusal:
             raise ToolError(f"Refused ({refusal.code}): {refusal.message}.") from refusal
         try:
-            columns = chosen.adapter.columns(schema, name)
-            listed = [
-                t
-                for t in chosen.adapter.tables()
-                if guard.stored_name(t.schema, connection_rule) == schema
-                and guard.stored_name(t.name, connection_rule) == name
-            ]
+            facts, columns = live_table(chosen, schema, name)
         except AdapterError as error:
             raise ToolError(f"The database ({chosen.name}) returned an error: {error}") from error
         if not columns:
             raise ToolError(f"No table {schema}.{name} on {chosen.name}. list_tables shows the readable ones.")
-        answer: dict = {"connection": chosen.name, "table": f"{schema}.{name}"}
+        answer: dict = {"connection": chosen.name, "table": facts.pop("name"), **facts}
+        return answers.render(answer, "columns", [column_item(c) for c in columns], answer_characters, "")
+
+    def live_table(chosen: Connection, schema: str, name: str) -> tuple[dict, list]:
+        """A readable table as the database holds it now: its name, kind, comment and `bound_by`, and its columns."""
+        rule = connection_rules[chosen.name]
+        columns = chosen.adapter.columns(schema, name)
+        listed = [
+            t
+            for t in chosen.adapter.tables()
+            if (guard.stored_name(t.schema, rule), guard.stored_name(t.name, rule)) == (schema, name)
+        ]
+        facts: dict = {"name": f"{schema}.{name}"}
         if listed:
-            answer["kind"] = listed[0].kind
+            facts["kind"] = listed[0].kind
             if listed[0].comment:
-                answer["comment"] = listed[0].comment
-        bound = guard.large_table_bound(schema, name, connection_rule)
+                facts["comment"] = listed[0].comment
+        bound = guard.large_table_bound(schema, name, rule)
         if bound:
-            answer["bound_by"] = bound
-        items = []
-        for column in columns:
-            item = {"name": column.name, "type": column.type}
-            if column.nullable is not None:
-                item["nullable"] = column.nullable
-            if column.comment:
-                item["comment"] = column.comment
-            items.append(item)
-        return answers.render(answer, "columns", items, answer_characters, "")
+            facts["bound_by"] = bound
+        return facts, columns
+
+    def column_item(column, name: bool = True) -> dict:
+        item = {"name": column.name} if name else {}
+        item["type"] = column.type
+        if column.nullable is not None:
+            item["nullable"] = column.nullable
+        if column.comment:
+            item["comment"] = column.comment
+        return item
 
     @server.tool(annotations=READ_ONLY, structured_output=False)
     def run_query(sql: str, connection: str | None = None) -> str:
@@ -325,6 +534,13 @@ def main(argv: list[str] | None = None) -> None:
         for connection in config.connections.values():
             readable = ", ".join(connection.readable)
             print(f"  - {connection.name} ({connection.engine}): reached; readable {readable}")
+            for model in connection.models:
+                datasets = model.document["datasets"]
+                metrics = len(model.document.get("metrics", [])) + sum(len(d.get("metrics", [])) for d in datasets)
+                counts = f"{len(datasets)} datasets, {metrics} metrics"
+                print(f"    semantic model {model.name} (Ossie {model.version}): {counts}")
+        for vendor, declared in config.vocabularies.items():
+            print(f"  - vocabulary {vendor} ({declared.file}): {len(declared.keys)} keys")
         return
     build_server(config).run("stdio")
 

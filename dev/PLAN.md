@@ -39,12 +39,13 @@ The engine production work runs on (the author, 2026-10-24) — moved up from "t
 
 ## Milestone 3. The semantic layer, your own metadata, context and skills — 2–3 sessions
 
-- [ ] Apache Ossie documents loaded and checked against the Ossie schema (the 0.2 shape, 0.1.1 read too), each bound
+- [x] Apache Ossie documents loaded and checked against the Ossie schema (the 0.2 shape, 0.1.1 read too), each bound
       to its connection; `list_datasets`, `describe_dataset`, `list_metrics`, `describe_metric` — descriptions,
-      `ai_context` and your own metadata served as written, the live table's columns beside.
+      `ai_context` and your own metadata served as written, the live table's columns beside. ✅ 2026-10-24
 - [ ] Your own metadata (`dev/DECISIONS.md`, "Your own metadata"): `custom_extensions` written as YAML or as Ossie's JSON
       string; a vocabulary per vendor declaring keys, levels, types and closed value lists with definitions — checked
-      at start, served with the definitions; a strict Ossie export. Nothing of any one catalog in code.
+      at start, served with the definitions; a strict Ossie export. Nothing of any one catalog in code. All but the
+      strict export ✅ 2026-10-24 — a large dbt catalog's shapes fit with no team key in code (a test holds it).
 - [ ] The dbt importer: a dbt project's descriptions, `meta` and tags into Ossie, `meta` passed through as written;
       which of its keys become Ossie's own places (a time column, a primary key) set in the importer's configuration,
       not in code.

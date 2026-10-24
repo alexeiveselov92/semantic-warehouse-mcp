@@ -1,0 +1,601 @@
+"""Semantic models in Apache Ossie: checked against their version's schema and bound to their connection at start,
+served as written by list_datasets, describe_dataset, list_metrics and describe_metric."""
+
+import json
+import pathlib
+import textwrap
+
+import pytest
+from conftest import write_config
+from mcp import Client
+
+from semantic_warehouse_mcp import answers, semantic, vocabulary
+from semantic_warehouse_mcp.config import ConfigError, load
+from semantic_warehouse_mcp.server import build_server
+
+pytestmark = pytest.mark.anyio
+
+EXAMPLES = pathlib.Path(__file__).resolve().parent.parent / "examples"
+
+MODEL = """
+version: "0.2.0.dev0"
+name: shop
+description: A made-up shop.
+ai_context: Revenue is net of refunds.
+datasets:
+  - name: orders
+    source: marts.orders
+    primary_key: [order_id]
+    description: |-
+      One row per paid order.
+      Grain: order_id. Never use it as the reporting clock.
+    ai_context: {synonyms: [purchases]}
+    fields:
+      - name: order_id
+        expression: {dialects: [{dialect: ANSI_SQL, expression: order_id}]}
+        datatype: String
+        custom_extensions:
+          - {vendor_name: acme, data: {tags: [identifier]}}
+      - name: net_amount
+        expression: {dialects: [{dialect: ANSI_SQL, expression: amount - refunded_amount}]}
+        description: Paid, net of refunds.
+        datatype: Decimal
+    metrics:
+      - name: order_count
+        expression: {dialects: [{dialect: ANSI_SQL, expression: COUNT(order_id)}]}
+    custom_extensions:
+      - {vendor_name: acme, data: {tags: [sales], layer: mart, owner: billing}}
+      - {vendor_name: OTHER_TOOL, data: '{"anything": [1, 2]}'}
+  - name: customers
+    source: marts.customers
+    primary_key: [customer_id]
+    fields:
+      - name: customer_id
+        expression: {dialects: [{dialect: ANSI_SQL, expression: customer_id}]}
+  - name: events
+    source: raw.events
+    fields:
+      - name: event_date
+        expression: {dialects: [{dialect: ANSI_SQL, expression: event_date}]}
+relationships:
+  - {name: orders_to_customers, from: orders, to: customers, from_columns: [customer_id], to_columns: [customer_id]}
+metrics:
+  - name: revenue
+    expression: {dialects: [{dialect: ANSI_SQL, expression: SUM(orders.net_amount)}]}
+    description: Revenue net of refunds.
+    ai_context: {synonyms: [sales]}
+"""
+
+VOCABULARY = """
+vendor_name: acme
+keys:
+  tags:
+    description: What it is about.
+    levels: [dataset, field]
+    type: list
+    in_lists: true
+    values: {sales: Paid orders and refunds., identifier: A key naming one row., money: An amount of money.}
+  layer:
+    levels: [dataset]
+    in_lists: true
+    values: {raw: As sent., mart: Business-ready.}
+  owner:
+    description: The team to ask.
+"""
+
+CONFIG = """
+vocabularies: [acme.yaml]
+connections:
+  - name: shop
+    engine: duckdb
+    path: shop.duckdb
+    readable: ["marts.*", "raw.events"]
+    large_tables: [{table: raw.events, bound_by: event_date}]
+    semantic_models: [shop.yaml]
+"""
+
+
+def write(folder: pathlib.Path, name: str, text: str) -> None:
+    (folder / name).write_text(textwrap.dedent(text), encoding="utf-8")
+
+
+@pytest.fixture
+def shop(shop_path):
+    """The shop with its model and vocabulary; call it with replacements to break one, or `problems=True` to get the
+    configuration's problems instead of the configuration."""
+
+    def build(*replacements, model=MODEL, config=CONFIG, vocabulary=VOCABULARY, problems=False):
+        folder = shop_path.parent
+        for old, new in replacements:
+            assert old in model, old
+            model = model.replace(old, new)
+        write(folder, "shop.yaml", model)
+        write(folder, "acme.yaml", vocabulary)
+        path = write_config(folder, config)
+        if not problems:
+            return load(path)
+        with pytest.raises(ConfigError) as error:
+            load(path)
+        return error.value.problems
+
+    return build
+
+
+async def call(config, tool, **arguments):
+    async with Client(build_server(config)) as client:
+        result = await client.call_tool(tool, arguments)
+    text = result.content[0].text
+    return (text, True) if result.is_error else (json.loads(text), False)
+
+
+# --- loading and checking -----------------------------------------------------------------------------------------
+
+
+def test_a_model_is_read_as_written(shop):
+    model = shop().connections["shop"].models[0]
+    assert (model.name, model.version, model.file) == ("shop", "0.2.0.dev0", "shop.yaml")
+    orders = model.document["datasets"][0]
+    assert orders["description"] == "One row per paid order.\nGrain: order_id. Never use it as the reporting clock."
+    assert orders["custom_extensions"] == [
+        {"vendor_name": "acme", "data": {"tags": ["sales"], "layer": "mart", "owner": "billing"}},
+        {"vendor_name": "OTHER_TOOL", "data": {"anything": [1, 2]}},  # Ossie's JSON string, decoded
+    ]
+
+
+def test_the_examples_hold_against_ossie_and_their_vocabulary():
+    models, problems = semantic.read(EXAMPLES / "semantic" / "shop.yaml", "shop.yaml")
+    assert problems == []
+    declared, problems = vocabulary.read(EXAMPLES / "vocabulary" / "acme.yaml", "acme.yaml")
+    assert problems == []
+    checked = [declared.check(e["data"], level) for _, level, e in semantic.extensions(models[0].document)]
+    assert len(checked) == 9 and not any(checked)
+
+
+def test_a_strict_ossie_document_is_read_as_it_is(shop):
+    strict = MODEL.replace("data: {tags: [identifier]}", """data: '{"tags": ["identifier"]}'""")
+    config = shop(model=strict)
+    field = config.connections["shop"].models[0].document["datasets"][0]["fields"][0]
+    assert field["custom_extensions"] == [{"vendor_name": "acme", "data": {"tags": ["identifier"]}}]
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "expected"),
+    [
+        (
+            "datatype: Decimal",
+            "datatype: Money",
+            'shop.yaml → datasets[0] "orders" → fields[1] "net_amount" → datatype: \'Money\' is not one of',
+        ),
+        ("    source: marts.customers\n", "", "shop.yaml → datasets[1] \"customers\": 'source' is a required property"),
+        ("    primary_key: [order_id]", "    primary_key: [order_id]\n    colour: red", "('colour' was unexpected)"),
+        (
+            "ai_context: {synonyms: [purchases]}",
+            "ai_context: [purchases]",
+            'datasets[0] "orders" → ai_context: must be a string, or a mapping of `instructions`, `synonyms`',
+        ),
+        (
+            "data: {tags: [identifier]}",
+            "data: [identifier]",
+            "custom_extensions[0] → data: must be a JSON string (as Ossie writes it) or a YAML mapping",
+        ),
+    ],
+)
+def test_a_model_is_checked_against_its_schema(shop, old, new, expected):
+    found = shop((old, new), problems=True)
+    assert len(found) == 1, found
+    assert found[0].startswith('connections[0] "shop" → semantic_models → shop.yaml'), found
+    assert expected in found[0], found
+
+
+def test_a_version_this_server_does_not_read_is_refused(shop):
+    found = shop(('version: "0.2.0.dev0"', 'version: "0.3"'), problems=True)
+    assert found == [
+        "connections[0] \"shop\" → semantic_models → shop.yaml → version: '0.3' is not a version this server reads "
+        "(it reads 0.2.0.dev0, 0.1.1)"
+    ]
+    found = shop(('version: "0.2.0.dev0"\n', ""), problems=True)
+    assert "shop.yaml: no `version`" in found[0]
+
+
+def test_a_broken_document_names_its_first_problems(shop):
+    broken = MODEL + "".join(
+        f"  - name: m{i}\n    expression: {{dialects: [{{dialect: ANSI_SQL, expression: '1'}}]}}\n    datatype: X\n"
+        for i in range(30)
+    )
+    found = shop(model=broken, problems=True)
+    assert len(found) == semantic.MAX_PROBLEMS_PER_FILE + 1
+    assert found[-1].endswith("shop.yaml: and 10 more problems against its schema")
+
+
+OSSIE_0_1_1 = """
+version: "0.1.1"
+semantic_model:
+  - name: sales
+    datasets:
+      - name: orders
+        source: marts.orders
+        custom_extensions:
+          - {vendor_name: COMMON, data: '{"owner": "billing"}'}
+  - name: people
+    datasets:
+      - name: customers
+        source: marts.customers
+"""
+
+
+async def test_ossie_0_1_1_is_read_too(shop):
+    config = shop(model=OSSIE_0_1_1)
+    models = config.connections["shop"].models
+    assert [(m.name, m.version, m.where) for m in models] == [
+        ("sales", "0.1.1", 'shop.yaml → semantic_model[0] "sales"'),
+        ("people", "0.1.1", 'shop.yaml → semantic_model[1] "people"'),
+    ]
+    answer, _ = await call(config, "list_datasets")
+    assert [(d["model"], d["dataset"]) for d in answer["datasets"]] == [("sales", "orders"), ("people", "customers")]
+
+
+def test_ossie_0_1_1_names_its_vendors(shop):
+    """0.1.1 closes its list of vendors; a team's own vendor name needs 0.2."""
+    found = shop(model=OSSIE_0_1_1.replace("vendor_name: COMMON", "vendor_name: acme"), problems=True)
+    assert "custom_extensions[0] → vendor_name: 'acme' is not one of ['COMMON'" in found[0]
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "expected"),
+    [
+        ("  - name: customers\n", "  - name: orders\n", "shop.yaml → two datasets are named 'orders'"),
+        ("      - name: net_amount", "      - name: order_id", 'datasets[0] "orders": two fields are named'),
+        (
+            "      - name: order_count",
+            "      - name: net_amount",
+            "'net_amount' is both a field and a metric",
+        ),
+        (
+            "  - name: revenue",
+            "  - name: revenue\n" + MODEL.split("  - name: revenue")[1] + "  - name: revenue",
+            "two metrics are named 'revenue'",
+        ),  # fmt: skip
+        (
+            "      - name: order_count",
+            "      - name: order_count\n        expression: {dialects: [{dialect: ANSI_SQL, expression: '1'}]}\n"
+            "      - name: order_count",
+            "datasets[0] \"orders\": two metrics are named 'order_count'",
+        ),
+        (
+            "  - {name: orders_to_customers,",
+            "  - {name: orders_to_customers, from: orders, to: customers, from_columns: [a], to_columns: [b]}\n"
+            "  - {name: orders_to_customers,",
+            "two relationships are named 'orders_to_customers'",
+        ),
+        ("from: orders, to: customers", "from: orders, to: clients", "→ to: no dataset named 'clients' in the model"),
+        ("to_columns: [customer_id]", "to_columns: [customer_id, country]", "must name as many columns each"),
+    ],
+)
+def test_ossie_rules_beyond_its_schema(shop, old, new, expected):
+    found = shop((old, new), problems=True)
+    assert any(expected in problem for problem in found), found
+
+
+def test_two_models_of_a_connection_may_not_share_a_name(shop, shop_path):
+    write(shop_path.parent, "again.yaml", MODEL)
+    found = shop(config=CONFIG.replace("[shop.yaml]", "[shop.yaml, again.yaml]"), problems=True)
+    assert found == ["connections[0] \"shop\" → semantic_models: two models are named 'shop' (shop.yaml; again.yaml)"]
+
+
+def test_a_folder_of_models(shop, shop_path):
+    folder = shop_path.parent / "models"
+    (folder / ".drafts").mkdir(parents=True)
+    write(folder, "shop.yaml", MODEL)
+    write(folder, "notes.md", "not a model")
+    write(folder / ".drafts", "broken.yaml", "version: nope")
+    config = shop(config=CONFIG.replace("[shop.yaml]", "[models/]"))
+    assert [m.file for m in config.connections["shop"].models] == ["models/shop.yaml"]
+
+
+def test_a_missing_model_is_named(shop):
+    found = shop(config=CONFIG.replace("[shop.yaml]", "[nowhere.yaml]"), problems=True)
+    assert found[0].startswith("connections[0] \"shop\" → semantic_models: 'nowhere.yaml' does not exist")
+
+
+def test_a_folder_or_a_file_without_a_model_is_named(shop, shop_path):
+    (shop_path.parent / "empty").mkdir()
+    found = shop(config=CONFIG.replace("[shop.yaml]", "[empty/]"), problems=True)
+    assert found[0].startswith("connections[0] \"shop\" → semantic_models: 'empty/' holds no .yaml, .yml or .json file")
+    found = shop(model='version: "0.1.1"\nsemantic_model: []\n', problems=True)
+    assert found == ['connections[0] "shop" → semantic_models → shop.yaml: holds no model']
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "expected"),
+    [
+        ("ai_context: {synonyms: [purchases]}", "ai_context: {synonyms: [purchases], at: !!set {a, b}}",
+         'datasets[0] "orders" → ai_context → at: a set is a value JSON cannot hold'),
+        ("ai_context: {synonyms: [purchases]}", "ai_context: {synonyms: [purchases], at: !!binary aGk=}",
+         'datasets[0] "orders" → ai_context → at: a bytes is a value JSON cannot hold'),
+        ("ai_context: {synonyms: [purchases]}", "ai_context: {synonyms: [purchases], at: .inf}",
+         "→ ai_context → at: inf is a number JSON cannot hold"),
+        ("data: {tags: [identifier]}", "data: {tags: [identifier], 1: a, '1': b}", "two keys read as '1' — write one"),
+    ],
+)  # fmt: skip
+def test_a_value_json_cannot_hold_is_refused_where_it_is(shop, old, new, expected):
+    found = shop((old, new), problems=True)
+    assert len(found) == 1 and expected in found[0], found
+
+
+async def test_what_yaml_reads_is_served_as_written(shop):
+    config = shop(
+        ("ai_context: {synonyms: [purchases]}", "ai_context: {instructions: x, since: 2026-03-01, every: on}"),
+        ("{vendor_name: acme, data: {tags: [identifier]}}",
+         "{vendor_name: OTHER_TOOL, data: {tags: [identifier], country: NO, at: 2026-03-01 10:00:00, 1: one}}"),
+        ("""'{"anything": [1, 2]}'""", """'{"rate": 0.12345678901234567890, "big": 1e400}'"""),
+    )  # fmt: skip
+    answer, error = await call(config, "describe_dataset", dataset="orders")
+    assert not error, answer
+    assert answer["ai_context"] == {"instructions": "x", "since": "2026-03-01", "every": "on"}
+    assert answer["fields"][0]["custom_extensions"][0]["data"] == {
+        "tags": ["identifier"], "country": "NO", "at": "2026-03-01 10:00:00", "1": "one",
+    }  # fmt: skip
+    assert answer["custom_extensions"][1]["data"] == {"rate": "0.12345678901234567890", "big": 10**400}  # exact
+
+
+@pytest.mark.parametrize("source", ["FROM marts.orders", "VALUES (1)", "-- a note\nSELECT 1", "marts.orders o"])
+def test_a_source_is_a_table_name_or_a_query(shop, source):
+    found = shop(("source: marts.customers", f"source: {source!r}"), problems=True)
+    assert len(found) == 1 and "is neither a table name (schema.table) nor a query starting with SELECT" in found[0]
+
+
+async def test_a_source_in_the_connections_own_catalog(shop):
+    """The DuckDB file is shop.duckdb: shop.marts.orders is a table of the connection's own catalog."""
+    config = shop(("source: marts.customers", "source: shop.marts.customers"))
+    answer, _ = await call(config, "describe_dataset", dataset="customers")
+    assert answer["table"]["name"] == "marts.customers"
+    answer, error = await call(config, "run_query", sql="SELECT count(*) FROM shop.marts.orders")
+    assert not error and answer["rows"] == [[6]]
+
+
+async def test_every_semantic_answer_stays_within_the_limit(shop):
+    long = "x" * 3000
+    config = shop(
+        ("      Grain: order_id. Never use it as the reporting clock.", f"      {long}"),
+        ("SUM(orders.net_amount)", f"SUM(orders.net_amount) + 0 * LENGTH('{long}')"),
+        config=CONFIG + "limits: {answer_characters: 1000}\n",
+    )
+    for tool, arguments in [
+        ("describe_dataset", {"dataset": "orders"}),
+        ("describe_metric", {"metric": "revenue"}),
+        ("list_datasets", {}),
+        ("list_metrics", {}),
+        ("list_connections", {}),
+    ]:
+        answer, error = await call(config, tool, **arguments)
+        assert not error, (tool, answer)
+        assert len(answers.dumps(answer)) <= 1000, tool
+    answer, _ = await call(config, "describe_dataset", dataset="orders")
+    assert answer["truncated"] is True and "long_values" in answer["truncated_by"]
+    assert answer["description"].endswith("…")
+    assert answer["note"].endswith("Long values were cut to fit the answer; each cut one ends in ….")
+
+
+async def test_a_lists_vocabulary_is_of_the_items_it_shows(shop):
+    vocabulary = VOCABULARY.replace("description: What it is about.", f"description: {'y' * 3000}")
+    config = shop(vocabulary=vocabulary, config=CONFIG + "limits: {answer_characters: 1500}\n")
+    answer, _ = await call(config, "list_datasets", search="marts")
+    assert answer["datasets"] == [] and "vocabulary" not in answer  # orders, the first, brings 3000 characters
+    assert answer["note"].startswith("Only the first 0 of 2 datasets fit in the answer (1500 characters).")
+
+
+def test_a_password_in_a_model_is_never_repeated(shop):
+    found = shop(("source: marts.customers", "source: ['https://bot:hunter2@db.example.com/x']"), problems=True)
+    assert len(found) == 1 and "https://…@db.example.com/x" in found[0] and "hunter2" not in found[0], found
+
+
+def test_a_lists_description_is_its_first_line_within_200_characters():
+    assert semantic.first_line("a" * 200 + "\nmore") == "a" * 199 + "…"
+    assert semantic.first_line("a" * 199 + "\nmore") == "a" * 199 + "…"
+    assert semantic.first_line("short\nmore") == "short…"
+    assert semantic.first_line("short") == "short"
+
+
+# --- bound to its connection ----------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("secret.salaries", "source: secret.salaries is not readable here"),
+        ("marts.nothing", "source: there is no table or view marts.nothing on the connection"),
+        ("SELECT * FROM secret.salaries", "is not readable here (readable: marts.*, raw.events) (table_not_readable)"),
+        ("SELECT * FROM raw.events", "(large_table_unbounded)"),
+        ("WITH x AS (DELETE FROM marts.orders) SELECT 1", "it holds DELETE; only reading runs here (not_read_only)"),
+    ],
+)
+def test_a_dataset_source_is_held_to_its_connection(shop, source, expected):
+    found = shop(("source: marts.customers", f"source: {source}"), problems=True)
+    assert len(found) == 1, found
+    assert found[0].startswith(
+        'connections[0] "shop" → semantic_models → shop.yaml → datasets[1] "customers" → source: '
+    ), found
+    assert expected in found[0], found
+
+
+async def test_a_query_source_the_guard_passes(shop):
+    config = shop(("source: marts.customers", "source: SELECT customer_id FROM marts.customers WHERE country = 'DE'"))
+    answer, _ = await call(config, "describe_dataset", dataset="customers")
+    assert answer["source"] == "SELECT customer_id FROM marts.customers WHERE country = 'DE'"
+    assert answer["table"] == {"note": "the source is a query, not a table"}
+
+
+# --- the tools ------------------------------------------------------------------------------------------------------
+
+
+async def test_list_connections_names_the_models(shop):
+    answer, _ = await call(shop(), "list_connections")
+    assert answer["connections"][0]["semantic_models"] == ["shop"]
+
+
+async def test_list_datasets(shop):
+    answer, _ = await call(shop(), "list_datasets")
+    assert answer == {
+        "vocabulary": {
+            "acme": {
+                "tags": {"description": "What it is about.", "values": {"sales": "Paid orders and refunds."}},
+                "layer": {"values": {"mart": "Business-ready."}},
+            }
+        },
+        "datasets": [
+            {
+                "connection": "shop",
+                "model": "shop",
+                "dataset": "orders",
+                "source": "marts.orders",
+                "description": "One row per paid order.…",
+                "synonyms": ["purchases"],
+                "custom_extensions": [{"vendor_name": "acme", "data": {"tags": ["sales"], "layer": "mart"}}],
+            },
+            {"connection": "shop", "model": "shop", "dataset": "customers", "source": "marts.customers"},
+            {"connection": "shop", "model": "shop", "dataset": "events", "source": "raw.events"},
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    ("search", "expected"),
+    [
+        ("identifier", ["orders"]),  # a field's own metadata
+        ("MART order", ["orders"]),  # every word, in any case
+        ("event_date", ["events"]),  # a field's name
+        ("marts", ["orders", "customers"]),  # the source
+        ("nothing", []),
+    ],
+)
+async def test_list_datasets_search(shop, search, expected):
+    answer, _ = await call(shop(), "list_datasets", search=search)
+    assert [d["dataset"] for d in answer["datasets"]] == expected
+
+
+async def test_describe_dataset(shop):
+    answer, error = await call(shop(), "describe_dataset", dataset="orders")
+    assert not error, answer
+    assert list(answer) == [
+        "connection", "model", "dataset", "source", "primary_key", "description", "ai_context", "custom_extensions",
+        "table", "metrics", "relationships", "other_columns", "vocabulary", "fields",
+    ]  # fmt: skip
+    assert answer["description"] == "One row per paid order.\nGrain: order_id. Never use it as the reporting clock."
+    assert answer["custom_extensions"][1] == {"vendor_name": "OTHER_TOOL", "data": {"anything": [1, 2]}}
+    assert answer["table"] == {"name": "marts.orders", "kind": "table", "comment": "One row per paid order."}
+    order_id, net_amount = answer["fields"]
+    assert order_id["column"] == {"type": "VARCHAR", "nullable": True}  # the field is the column: its type beside
+    assert "column" not in net_amount  # a calculation, not one column
+    assert net_amount["expression"] == {"dialects": [{"dialect": "ANSI_SQL", "expression": "amount - refunded_amount"}]}
+    assert [c["name"] for c in answer["other_columns"]] == [
+        "order_date", "customer_id", "currency", "amount", "refunded_amount",
+    ]  # fmt: skip
+    assert answer["other_columns"][3] == {
+        "name": "amount", "type": "DECIMAL(12,2)", "nullable": True, "comment": "Paid, before refunds.",
+    }  # fmt: skip
+    assert answer["metrics"][0]["name"] == "order_count"
+    assert [r["name"] for r in answer["relationships"]] == ["orders_to_customers"]
+    assert answer["vocabulary"] == {
+        "acme": {
+            "tags": {
+                "description": "What it is about.",
+                "values": {"sales": "Paid orders and refunds.", "identifier": "A key naming one row."},
+            },
+            "layer": {"values": {"mart": "Business-ready."}},
+            "owner": {"description": "The team to ask."},
+        }
+    }
+
+
+async def test_describe_dataset_of_a_large_table_shows_its_bound(shop):
+    answer, _ = await call(shop(), "describe_dataset", dataset="events")
+    assert answer["table"] == {"name": "raw.events", "kind": "table", "bound_by": "event_date"}
+
+
+async def test_describe_dataset_keeps_its_fields_within_the_answer_limit(shop):
+    """Parts of the answer are made smaller, in turn, before a field is left out; the note says which."""
+    answer, _ = await call(
+        shop(config=CONFIG + "limits: {answer_characters: 1600}\n"), "describe_dataset", dataset="orders"
+    )
+    assert len(answers.dumps(answer)) <= 1600
+    assert answer["other_columns"] == ["order_date", "customer_id", "currency", "amount", "refunded_amount"]
+    assert answer["note"] == "To fit the answer (1600 characters): `other_columns` holds names only."
+
+    answer, _ = await call(
+        shop(config=CONFIG + "limits: {answer_characters: 1500}\n"), "describe_dataset", dataset="orders"
+    )
+    assert len(answers.dumps(answer)) <= 1500
+    assert [field["name"] for field in answer["fields"]] == ["order_id", "net_amount"]
+    assert "other_columns" not in answer and "relationships" not in answer
+    assert answer["metrics"] and answer["vocabulary"]
+    assert answer["note"] == (
+        "To fit the answer (1500 characters): `other_columns` holds names only; `other_columns` left out "
+        "(describe_table shows them); `relationships` left out."
+    )
+
+
+async def test_list_metrics(shop):
+    answer, _ = await call(shop(), "list_metrics")
+    assert answer == {
+        "metrics": [
+            {
+                "connection": "shop",
+                "model": "shop",
+                "metric": "revenue",
+                "description": "Revenue net of refunds.",
+                "synonyms": ["sales"],
+            },
+            {"connection": "shop", "model": "shop", "metric": "order_count", "dataset": "orders"},
+        ]
+    }
+    answer, _ = await call(shop(), "list_metrics", search="count")
+    assert [m["metric"] for m in answer["metrics"]] == ["order_count"]
+
+
+async def test_describe_metric_names_what_it_reads(shop):
+    answer, _ = await call(shop(), "describe_metric", metric="revenue")
+    assert answer == {
+        "connection": "shop",
+        "model": "shop",
+        "metric": "revenue",
+        "expression": {"dialects": [{"dialect": "ANSI_SQL", "expression": "SUM(orders.net_amount)"}]},
+        "description": "Revenue net of refunds.",
+        "ai_context": {"synonyms": ["sales"]},
+        "datasets": [
+            {
+                "dataset": "orders",
+                "source": "marts.orders",
+                "fields": [
+                    {
+                        "name": "net_amount",
+                        "expression": {"dialects": [{"dialect": "ANSI_SQL", "expression": "amount - refunded_amount"}]},
+                    }
+                ],
+            }
+        ],
+    }
+    answer, _ = await call(shop(), "describe_metric", metric="order_count", dataset="orders")
+    assert answer["dataset"] == "orders"
+    assert answer["datasets"][0]["fields"][0]["name"] == "order_id"
+
+
+async def test_a_name_in_two_places_asks_which(shop, shop_path):
+    two = CONFIG + CONFIG.split("connections:\n")[1].replace("name: shop", "name: copy")
+    config = shop(config=two)
+    text, error = await call(config, "describe_dataset", dataset="orders")
+    assert error
+    assert "'orders' is a dataset of more than one place (model shop on shop; model shop on copy)" in text
+    answer, _ = await call(config, "describe_dataset", dataset="orders", connection="copy")
+    assert answer["connection"] == "copy"
+    text, error = await call(config, "describe_metric", metric="revenue", model="nope")
+    assert error and "No semantic model named 'nope'. Models: shop." in text
+    text, error = await call(config, "describe_metric", metric="order_count", dataset="customers")
+    assert error and "No metric named 'order_count'" in text
+
+
+async def test_without_a_model_the_lists_say_so(shop_config):
+    answer, _ = await call(shop_config(), "list_datasets")
+    assert answer == {
+        "note": "No connection has a semantic model; list_tables and describe_table show the tables.",
+        "datasets": [],
+    }

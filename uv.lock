@@ -813,6 +813,7 @@ source = { editable = "." }
 dependencies = [
     { name = "duckdb" },
     { name = "httpx" },
+    { name = "jsonschema" },
     { name = "mcp" },
     { name = "pyyaml" },
     { name = "sqlglot" },
@@ -828,6 +829,7 @@ dev = [
 requires-dist = [
     { name = "duckdb", specifier = ">=1.3" },
     { name = "httpx", specifier = ">=0.28" },
+    { name = "jsonschema", specifier = ">=4.23" },
     { name = "mcp", specifier = ">=2.3,<3" },
     { name = "pyyaml", specifier = ">=6" },
     { name = "sqlglot", specifier = ">=27" },

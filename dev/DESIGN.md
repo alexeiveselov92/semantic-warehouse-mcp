@@ -22,8 +22,9 @@ connections:
     large_tables:                      # a query over one of these must bound this column
       - { table: "raw.events", bound_by: event_date }
     limits: { rows: 500, seconds: 30 }
+    semantic_models: ["semantic/"]     # Apache Ossie documents of this connection; checked at start
 
-semantic_models: ["semantic/*.yaml"]   # Apache Ossie documents; checked against its schema at start
+vocabularies: ["vocabulary/"]          # the team's own metadata keys, one vocabulary per vendor, for the whole server
 context: ["context/"]                  # markdown documents an agent reads with the data
 skills: ["skills/"]                    # folders holding a SKILL.md each
 query_sets: ["queries/*.yaml"]         # saved, parameterised SQL
@@ -105,6 +106,39 @@ keys:
 
 Checked at start (an unknown key or value stops the server, naming the dataset and field); served as written, with the
 definitions of the values used. The server has no notion of any key: none is named in code.
+
+**Built (milestone 3, first session)** — `semantic.py`, `vocabulary.py`, the binding in `config.py`; the user's page is
+`docs/reference/semantic-models.md`:
+
+- **Loading.** `semantic_models` per connection (files, folders), `vocabularies` at the top only — one vocabulary per
+  vendor for the whole server, so a vendor's key means the same in every model and a list spanning connections carries
+  one set of definitions. Read and checked once at start: an edit needs a restart (unlike context documents, which
+  are not checked and are read anew).
+- **Checks, in order**: the schema of the document's own version (bundled, pinned — `schemas/README.md`), after each
+  YAML-mapping `data` is turned into the JSON string it stands for; Ossie's rules its own validator checks beyond the
+  schema (unique names, relationships between datasets of the model with as many columns each side); no two models of a
+  connection with one name; each dataset's `source` held to its connection — a table name resolved by the guard
+  (readable) and found in the engine's catalog, a query (it starts with `SELECT`/`WITH`) passed by `guard.check`; each
+  extension of a vendor with a vocabulary against it (key, level, type, closed values).
+- **Serving.** Lists give the first line of a description (cut at 200, `…` when there is more), synonyms, and only the
+  own metadata keys the vocabulary marks `in_lists`; `search` matches every word against every string value of the
+  dataset or metric as written. `describe_dataset` puts the live column beside a field whose expression is nothing but
+  that column's name (a calculation gets none), lists the table's other columns, and the source table's `bound_by`;
+  when it does not fit, parts are made smaller in turn before a field is left out (`answers.render_fitting`).
+  `describe_metric` names the fields its expression reads — `dataset.field` in a model metric, a bare name in a
+  dataset's own — with their expressions, since a field may be a calculation. Expressions are served as written; the
+  dialect question waits for its milestone item.
+- **Ossie 0.1.1** closes `vendor_name` to six names; a team's own vendor needs 0.2.
+- **Refuted by a second reader** (closed, each with a test): answers past the cap (now the longest values are cut,
+  `long_values`, after the items; a list's `vocabulary` of the items shown only); `ai_context` holding YAML values JSON
+  cannot hold (refused at start); secrets repeated by YAML errors (line and column only), schema errors (`redact` of a
+  URL's password, in every `ConfigError`) and vocabulary checks (values under secret-like keys); tracebacks at start
+  (unhashable keys, huge integers, non-UTF-8, `version` not a string); `ACME` slipping past `acme`'s vocabulary; the
+  guard's rules built before `check()` learnt DuckDB's catalog; YAML 1.1's `no`/`on`/dates (`files.py` reads booleans
+  and dates as YAML 1.2 does); aliases expanding exponentially (capped at a million values); misleading errors for a
+  source that is neither a name nor a SELECT. Held: nothing outside `readable` could be read through a model. Found
+  by removing protections: the cut of long values looped forever on an answer of many short values (it now knows
+  beforehand whether cutting can fit the answer, and every step shortens it).
 
 **Importers**: a dbt project's descriptions (`manifest.json`, `catalog.json` — model and column descriptions,
 `meta`, tags) into Ossie, `meta` passed through as written into `custom_extensions` under a vendor name the

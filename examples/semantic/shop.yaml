@@ -1,9 +1,11 @@
 # A made-up shop's semantic model in Apache Ossie (https://ossie.apache.org/) — an example, not real data.
-# `custom_extensions` carries what is the shop's own: here, where the code that writes each table lives.
-# Valid against Ossie's schema at 0.2.0.dev0 (checked 2026-10-24; dev/DECISIONS.md, "Which Ossie").
+# Checked at start against Ossie's schema at 0.2.0.dev0 (docs/reference/semantic-models.md). It differs from strict
+# Ossie in one place: `custom_extensions` data written as a YAML mapping, where Ossie writes a JSON string.
+# What is the shop's own — tags, the layer, where the code that writes a table lives — is under `vendor_name: acme`,
+# each key declared in ../vocabulary/acme.yaml.
 version: "0.2.0.dev0"
 name: shop
-description: Orders and customers of a made-up online shop.
+description: Orders, customers and site events of a made-up online shop.
 ai_context:
   instructions: >-
     Revenue is net of refunds. A day is a calendar day in UTC. Never add revenue of different currencies — group by
@@ -12,7 +14,9 @@ datasets:
   - name: orders
     source: marts.orders
     primary_key: [order_id]
-    description: One row per paid order.
+    description: |-
+      One row per paid order; test orders are removed.
+      The amount is what the customer paid net of refunds, in the order's currency.
     ai_context:
       synonyms: [purchases, sales]
     fields:
@@ -22,6 +26,9 @@ datasets:
             - dialect: ANSI_SQL
               expression: order_id
         datatype: String
+        custom_extensions:
+          - vendor_name: acme
+            data: { tags: [identifier] }
       - name: order_date
         expression:
           dialects:
@@ -30,6 +37,9 @@ datasets:
         dimension:
           is_time: true
         datatype: Date
+        custom_extensions:
+          - vendor_name: acme
+            data: { tags: [timestamp] }
       - name: customer_id
         expression:
           dialects:
@@ -49,9 +59,19 @@ datasets:
               expression: amount - refunded_amount
         description: The amount paid, net of refunds.
         datatype: Decimal
+        custom_extensions:
+          - vendor_name: acme
+            data: { tags: [money] }
     custom_extensions:
-      - vendor_name: COMMON
-        data: '{"written_by": "https://github.com/acme/shop-backend/blob/main/billing/order_paid.go", "owner": "billing team"}'
+      - vendor_name: acme
+        data:
+          tags: [sales]
+          layer: mart
+          owner: billing team
+          written_by:
+            - topic: shop.order_paid
+              repository: https://github.com/acme/shop-backend
+              code: https://github.com/acme/shop-backend/blob/main/billing/order_paid.go
   - name: customers
     source: marts.customers
     primary_key: [customer_id]
@@ -63,12 +83,60 @@ datasets:
             - dialect: ANSI_SQL
               expression: customer_id
         datatype: String
+        custom_extensions:
+          - vendor_name: acme
+            data: { tags: [identifier] }
       - name: country
         expression:
           dialects:
             - dialect: ANSI_SQL
               expression: country
+        description: Two-letter country code (ISO 3166-1).
         datatype: String
+      - name: signed_up_on
+        expression:
+          dialects:
+            - dialect: ANSI_SQL
+              expression: signed_up_on
+        datatype: Date
+    custom_extensions:
+      - vendor_name: acme
+        data: { tags: [customers], layer: mart, owner: growth team }
+  - name: events
+    source: raw.events
+    description: |-
+      Every event the shop's site sends, as sent — one row per event.
+      Large: a query must bound event_date. Abandoned carts are event_name = 'cart_abandoned'.
+    fields:
+      - name: event_date
+        expression:
+          dialects:
+            - dialect: ANSI_SQL
+              expression: event_date
+        datatype: Date
+        custom_extensions:
+          - vendor_name: acme
+            data: { tags: [timestamp] }
+      - name: event_name
+        expression:
+          dialects:
+            - dialect: ANSI_SQL
+              expression: event_name
+        datatype: String
+      - name: customer_id
+        expression:
+          dialects:
+            - dialect: ANSI_SQL
+              expression: customer_id
+        datatype: String
+    custom_extensions:
+      - vendor_name: acme
+        data:
+          tags: [site]
+          layer: raw
+          written_by:
+            - topic: shop.site_events
+              repository: https://github.com/acme/shop-site
 relationships:
   - name: orders_to_customers
     from: orders
@@ -84,6 +152,9 @@ metrics:
     description: Revenue net of refunds, in the order's currency.
     ai_context:
       synonyms: [sales, turnover]
+    custom_extensions:
+      - vendor_name: acme
+        data: { owner: billing team }
   - name: paying_customers
     expression:
       dialects:

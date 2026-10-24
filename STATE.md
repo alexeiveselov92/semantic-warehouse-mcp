@@ -5,66 +5,66 @@
 **Updated:** 24 October 2026.
 
 **Current milestone: 3 — the semantic layer, your own metadata, context and skills** (`dev/PLAN.md`). Milestones 0
-(groundwork), 1 (one database, the guard) and 2 (ClickHouse) are done — 1 and 2 in one session, with the team's own
-instructions and context documents built ahead of milestone 3 at the author's request.
+(groundwork), 1 (one database, the guard) and 2 (ClickHouse) are done. Milestone 3's first part is done: semantic models
+in Ossie, vocabularies of your own metadata, the four semantic tools. The dbt importer is next, in the same sitting.
 
 ## What exists
 
 - **The server** over stdio (`uv run semantic-warehouse-mcp --config <file>`, `--check` to check and exit), tools:
-  `about`, `list_connections`, `list_tables`, `describe_table`, `run_query`, `list_context`, `get_context` — all
-  read-only, every answer compact JSON with its provenance (connection, the SQL as it ran, time, rows, cut or not).
-- **The configuration** (`config.py`): several connections, each with its engine's keys, `readable` patterns,
-  `large_tables` and their `bound_by`, `limits`; `instructions` and `context` for the whole server and per connection.
-  Every problem named at once, typos with the likely key, duplicate YAML keys refused, secrets (and URLs) never
-  repeated in an error, every connection reached at start.
-- **Engines** (`adapters/`): **ClickHouse** — HTTP `GET` (read-only by ClickHouse's own rule, even for a user who may
-  write), every overflow mode `throw` (a profile's silent `break` overridden), one extra row to show a cut,
-  `EXPLAIN QUERY TREE` naming the tables read; **DuckDB** — read-only file, external access off, configuration locked,
-  `json_serialize_sql` naming the tables read.
-- **The guard** (`guard.py`, sqlglot): one `SELECT`; nothing writes, locks or sets inside; table functions by
-  allow-list; denied function families by glob; every table node checked against `readable` unless proven a CTE's
-  name; dictionaries named in `dictGet…` checked; large tables bounded from below in the query that reads them; the
-  engine's own list of tables held to the same rules. 12 refusal codes, each in `docs/reference/guard.md`.
-- **The guide** (`docs/`): getting started, reference — tools, configuration, the guard, engines; held by
-  `tests/test_docs.py` (every tool, refusal, configuration key and engine key has its entry; the contents list every page).
-- **Examples**: a made-up shop (`examples/data/make_shop.py` → DuckDB file or a throwaway ClickHouse), its configs
-  (`config.example.yaml`, `config.clickhouse.example.yaml`), a context document; drafts of an Ossie model, a skill, a
-  saved query set.
+  `about`, `list_connections`, `list_tables`, `describe_table`, `run_query`, `list_context`, `get_context`,
+  `list_datasets`, `describe_dataset`, `list_metrics`, `describe_metric` — all read-only, every answer compact JSON
+  with its provenance, capped at `answer_characters` and saying so when cut.
+- **The configuration** (`config.py`, `files.py`): several connections, each with its engine's keys, `readable`,
+  `large_tables` and their `bound_by`, `limits`, `instructions`, `context`, `semantic_models`; `vocabularies` for the
+  whole server. Every problem named at once with where it is; files read as written (YAML 1.2 booleans, dates as
+  text, UTF-8, duplicate keys refused, aliases capped); secrets and a URL's password never repeated in an error.
+- **Semantic models** (`semantic.py`, `schemas/`): Ossie 0.2.0.dev0 and 0.1.1 (unwrapped), checked against the bundled
+  schema of their version, Ossie's rules beyond it, and their connection — a source table readable and existing, a
+  query source through the guard, anything else refused. `custom_extensions` data as a YAML mapping or a JSON string.
+- **Vocabularies** (`vocabulary.py`): per `vendor_name` — keys, levels, types, closed values with definitions,
+  `in_lists`, `unknown_keys`; checked at start (the likely key or value for a typo; values under secret-like keys never
+  repeated; a vendor differing only in case refused); definitions served beside every answer that uses them.
+- **Engines** (`adapters/`): **ClickHouse** — HTTP `GET` (read-only by its own rule), every overflow mode `throw`,
+  `EXPLAIN QUERY TREE` naming the tables read; **DuckDB** — read-only file, external access off, `json_serialize_sql`.
+- **The guard** (`guard.py`, sqlglot): one `SELECT`; nothing writes, locks or sets; table functions by allow-list;
+  every table node checked against `readable`; dictionaries checked; large tables bounded from below. 12 refusal codes.
+- **The guide** (`docs/`): getting started; reference — tools, configuration, semantic models and vocabularies, the
+  guard, engines; held by `tests/test_docs.py` (every tool, refusal, configuration key, engine key, vocabulary key and
+  Ossie version has its entry).
+- **Examples**: a made-up shop (`examples/data/make_shop.py`), its configs, its Ossie model
+  (`examples/semantic/shop.yaml`) and vocabulary (`examples/vocabulary/acme.yaml`), a context document.
 
 ## How it was verified
 
-- 257 tests pass (ruff clean); ClickHouse tests against a real server — a container the tests start, or CI's service.
-- Every protection held by a test that fails when it is removed: 74 removals, 74 caught (a mutation script, run in a
-  copy of the tree).
-- A refuting reader attacked the guard: two bypasses found and closed (`FROM (secret.t) x`; ClickHouse `x IN db.table`),
-  then `dictGet*` / `joinGetOrNull` — now checked against `readable`.
-- Real Claude Code over stdio, four runs: March revenue on DuckDB; refusals of `DELETE` and an unbounded scan; April
-  compared across DuckDB and ClickHouse at once (dialect-correct SQL for each); a question answered from a context
-  document with each rule's source cited — every number checked by a direct query.
+- 366 tests pass (328 without ClickHouse; 38 against a real ClickHouse in a container), ruff clean.
+- Every protection held by a test that fails when it is removed: 74 removals (milestones 1–2) and 54 (milestone 3's
+  first part), all caught — a mutation script run in a copy of the tree, a hang counted as caught.
+- A refuting reader attacked the semantic layer: 9 findings closed, each with a test; nothing outside `readable` could
+  be read through a model. Removing protections found one more: a cut of long values that could loop forever — closed.
+- Real Claude Code through the model: March 2026 revenue on the made-up shop (EUR 35,057.66 over 698 orders, USD
+  12,560.35 over 241), counted through the metric's field expression (net, not the gross column) and the vocabulary's
+  definitions — checked by a direct query.
 
-## Decided this session (`dev/DECISIONS.md`)
+## Decided (`dev/DECISIONS.md`)
 
-DuckDB for development, ClickHouse for production; the query runs as written, read twice (sqlglot, then the
-engine's own parser); every table node a table read unless proven a CTE's name; the large-table bound rule (presence,
-not width); answers as compact JSON, numbers exact; ClickHouse's GET + `throw` design; **your own metadata — option B**:
-Ossie's `custom_extensions` written as YAML (or JSON strings), a vocabulary per vendor with definitions, checked at
-start, **nothing of any one catalog in code**; the team's own instructions and context; the plan reordered
-(ClickHouse → the semantic layer with the dbt importer → the site → other engines → metrics).
+Earlier: DuckDB for development, ClickHouse for production; the query runs as written, read twice; answers compact
+JSON, numbers exact; your own metadata — option B (YAML in `custom_extensions`, a vocabulary per vendor, nothing of
+one catalog in code). This sitting: models belong to a connection, checked once at start and held to it; semantic
+answers as written, lists short, made smaller in a fixed order; every file read as written; **the dbt importer writes
+an Ossie file** (fields are the columns dbt describes; MetricFlow metrics through Ossie's own converter).
 
 ## Next step
 
-Milestone 3, the semantic layer: Ossie documents loaded and checked against the Ossie schema, each bound to its
-connection; your own metadata in `custom_extensions` as YAML with a vocabulary (keys, levels, closed value lists with
-definitions); `list_datasets`, `describe_dataset`, `list_metrics`, `describe_metric` serving descriptions,
-`ai_context` and own metadata as written; the dbt importer (descriptions, `meta`, tags → Ossie, its mapping in the
-importer's configuration, not code). Requirements: `dev/DESIGN.md` ("Your own metadata", "Importers") and
-`dev/RESEARCH.md` ("What a production dbt catalog holds"). First check of the design: a large dbt catalog's tags,
-layers and provenance must fit without a line of code naming them.
+The dbt importer, in this sitting: `semantic-warehouse-mcp import-dbt` reads `manifest.json`, writes an Ossie document
+(`--strict`: `data` as JSON strings — the strict export); the importer's configuration says which tables, the
+`vendor_name` for `meta` and tags, and which of a team's keys stand for Ossie's places; the code reads only dbt's own
+structure (descriptions, `constraints`, `relationships` tests). Shown on a made-up dbt project, then on a large real
+catalog in a scratch copy (counts only, nothing committed). After it: skills, a git source, the dialect question.
 
 ## What the author needs to do
 
-Nothing blocks milestone 3. Open Claude Code in this repository and run `/start`. For the ClickHouse tests locally,
-Docker must be running (the tests start their own container) — or set `SWM_TEST_CLICKHOUSE_URL` to a throwaway server.
+Nothing blocks. For the ClickHouse tests locally, Docker must be running (the tests start their own container) — or
+set `SWM_TEST_CLICKHOUSE_URL` to a throwaway server.
 
 ## Don't
 

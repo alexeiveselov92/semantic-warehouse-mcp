@@ -14,3 +14,6 @@ connections:
     large_tables:
       - { table: raw.events, bound_by: event_date }
     limits: { rows: 500, seconds: 30 }
+    semantic_models: [semantic/]              # the same model as the DuckDB example: its tables have the same names
+
+vocabularies: [vocabulary/acme.yaml]

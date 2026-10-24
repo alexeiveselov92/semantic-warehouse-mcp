@@ -1,0 +1,33 @@
+# The made-up shop's own metadata, declared (docs/reference/semantic-models.md, "Vocabularies"). Made-up names only.
+# Every key the shop's semantic model writes under `vendor_name: acme` is declared here; the server checks the model
+# against it at start, and serves each value's definition to agents beside the value.
+vendor_name: acme
+unknown_keys: refuse                    # an undeclared key stops the server, naming where it is
+
+keys:
+  tags:
+    description: What a table or a column is about — a business area, or the kind of column it is.
+    levels: [dataset, field]
+    type: list
+    in_lists: true                      # shown in list_datasets, not only in describe_dataset
+    values:
+      sales: Paid orders and their refunds.
+      customers: The people who buy, and where they live.
+      site: What visitors do on the shop's site, as the site reports it.
+      money: An amount of money, in the currency of its row — never add amounts of different currencies.
+      identifier: A key naming one row of an entity.
+      timestamp: A day or a moment, in UTC.
+  layer:
+    description: Where the table sits in the pipeline that builds it.
+    levels: [dataset]
+    in_lists: true
+    values:
+      raw: As the application sent it — events, not facts; duplicates possible.
+      mart: Business-ready — one row per entity or fact, test data removed.
+  written_by:
+    description: Where the data of this table comes from in the application's code.
+    levels: [dataset]
+    type: list                          # each item free: a topic, a repository, a link to the code
+  owner:
+    description: The team to ask about it.
+    levels: [dataset, metric]

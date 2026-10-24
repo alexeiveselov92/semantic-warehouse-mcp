@@ -11,14 +11,16 @@ How the project is built and planned is not here: that is `dev/` (design, plan, 
 - **Reference**
   - [Tools](reference/tools.md) — every tool, its inputs and answers.
   - [Configuration](reference/configuration.md) — every key of the configuration file, and its check.
+  - [Semantic models and vocabularies](reference/semantic-models.md) — Apache Ossie documents, your own metadata
+    declared in a vocabulary, every check at start.
   - [The guard](reference/guard.md) — how a query is read, every refusal and why, the limits.
   - [Engines](reference/engines.md) — the databases it reads, and how each is kept read-only.
 
 Planned, each written with the change that makes it true:
 
 - **Guides** — connecting databases (read-only users, `readable`, large tables, secrets by name); writing a semantic
-  model in Apache Ossie (datasets, fields, metrics, relationships, `ai_context`, your own `custom_extensions`);
-  importing from dbt; context documents and skills; saved query sets; running it for a team.
+  model step by step (the reference is [semantic models and vocabularies](reference/semantic-models.md)); importing
+  from dbt; context documents and skills; saved query sets; running it for a team.
 - **Contributing** — how the project is built and tested.
 
 Three readers: people who use it through their agent (getting started, guides), people who run it (guides,

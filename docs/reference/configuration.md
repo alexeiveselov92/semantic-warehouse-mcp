@@ -6,6 +6,7 @@ One YAML file tells the server which databases it reads and how. Pass it with `-
 ```yaml
 instructions: Dates are UTC.
 context: [context/]
+vocabularies: [vocabulary/acme.yaml]
 
 connections:
   - name: shop
@@ -16,6 +17,7 @@ connections:
     large_tables:
       - { table: raw.events, bound_by: event_date }
     limits: { rows: 500, seconds: 30 }
+    semantic_models: [semantic/]
 
 limits:
   answer_characters: 40000
@@ -34,7 +36,12 @@ semantic-warehouse-mcp: the configuration config.yaml has 2 problems:
 
 It refuses unknown keys (with the likely one, for a typo), a key written twice in one mapping, values of the wrong
 type, and a connection it cannot reach. A value that may be a secret written by mistake (under a key ending in `_env`,
-a URL, or a key naming a password, secret or token) is never repeated in an error.
+a URL, or a key naming a password, secret or token) is never repeated in an error, nor is a password written inside a
+URL anywhere (`https://…@host`); an error in the YAML itself names its line and column, never the line.
+
+Every file the server reads — this one, [semantic models and vocabularies](semantic-models.md) — is read as written:
+only `true` and `false` are booleans (`no`, `on`, `yes` stay text, as in YAML 1.2), and a date stays the text written
+(`2026-03-01`). A file must be UTF-8; YAML aliases may not expand it past a million values.
 
 `semantic-warehouse-mcp --config <file> --check` runs the check, reaches every database, and exits — `0` when the
 configuration is fine, `2` with its problems.
@@ -53,6 +60,7 @@ Required: a list of at least one connection. Each connection:
 | `limits` | | the limits of one query — see below |
 | `instructions` | | your own rules for agents working with this database, as text — see [Instructions and context](#instructions-and-context) |
 | `context` | | your own documents about this database: files and folders — see [Instructions and context](#instructions-and-context) |
+| `semantic_models` | | its semantic models in Apache Ossie: files and folders — see [Semantic models and vocabularies](#semantic-models-and-vocabularies) |
 
 An engine adds keys of its own — a file's `path`, a server's address, the variables holding secrets: see
 [engines](engines.md).
@@ -117,7 +125,30 @@ edited or added document is served without a restart. Every path must exist when
 documents of one scope may share a name: a file is named by its own name, a folder's files as
 `<folder>/<path inside it>`.
 
+## Semantic models and vocabularies
+
+| Key | Where | What |
+|---|---|---|
+| `semantic_models` | a connection | what its tables mean, in [Apache Ossie](semantic-models.md): a list of files and folders (every `.yaml`, `.yml`, `.json` in a folder), relative to the configuration file's folder |
+| `vocabularies` | the top of the file | your own metadata keys, declared: a list of vocabulary files and folders — one vocabulary per `vendor_name`, for the whole server |
+
+```yaml
+vocabularies: [vocabulary/acme.yaml]
+
+connections:
+  - name: shop
+    engine: duckdb
+    path: data/shop.duckdb
+    readable: ["marts.*", "raw.events"]
+    semantic_models: [semantic/]
+```
+
+Each model is checked when the server starts — against the schema of its Ossie version, by Ossie's rules, against its
+connection (every dataset's source readable there and existing), and its own metadata against its vocabulary — and a
+problem stops the server, naming it. [Semantic models and vocabularies](semantic-models.md) has every check and the
+vocabulary's keys.
+
 ## Planned
 
-Read from later milestones, each documented here when it works: `semantic_models` (Apache Ossie documents), `skills`
-(folders holding a `SKILL.md`), `query_sets` (saved, parameterised SQL); `context` read straight from a git repository.
+Read from later milestones, each documented here when it works: `skills` (folders holding a `SKILL.md`), `query_sets`
+(saved, parameterised SQL); `context`, `semantic_models` and `vocabularies` read straight from a git repository.
