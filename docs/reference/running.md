@@ -6,8 +6,8 @@ it and reaches every database before it answers anything.
 
 It is a Python package on PyPI, each engine's driver an extra ([engines](engines.md#drivers)) — `uvx --from
 'semantic-warehouse-mcp[all]' semantic-warehouse-mcp …` runs it without installing anything else, `pip install
-'semantic-warehouse-mcp[postgres]'` installs it with one driver (Python 3.12 or newer) — and a
-[container image](#the-image), which holds every driver. Context and skills
+'semantic-warehouse-mcp[postgres]'` installs it with one driver (Python 3.12 or newer: give `uvx` `--python 3.12` when
+the default is older) — and a [container image](#the-image), which holds every driver. Context and skills
 [read from a repository](configuration.md#repositories) need the `git` program as well (2.31 or newer), which the image
 holds.
 
