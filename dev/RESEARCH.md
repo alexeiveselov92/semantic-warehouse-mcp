@@ -23,6 +23,31 @@ Read 2026-10-24. Re-check before a design decision that leans on it.
 - dbt's semantic layer (MetricFlow semantic models and metrics), Cube's data model, LookML — each its own shape;
   reached through Ossie's converters.
 
+## What a production metrics registry needs
+
+Studied 2026-10-24: a metrics registry built for agents inside a company's dbt project (the company and its data are
+not named here; only the concepts). Plain YAML beside the dbt project, rendered by scripts, published to the warehouse
+for agents, verified against the company's dashboard. What it has that a semantic format must be able to hold:
+
+- **Populations (bases)** — a table with a time column, a grain key (user and day), predicates that always apply,
+  switches the dashboard turns on, a breakdown allowlist with a "partitions the population" flag per dimension, the
+  longest window a single render may scan.
+- **Filters defined once** — every dashboard variable — mapped to a column **per population**, with where the predicate
+  goes (the population subquery, or the event side); money from a purchases table is filtered by user attributes that
+  live on the population, joined per user and day; a filter not mapped to a population makes the render refuse.
+- **Metric semantics** — kind (additive, distinct count, ratio, distribution), unit, roll-up rules over time and over a
+  dimension, ratio components ("weekly ARPU is weekly revenue over weekly visitors, never a mean of daily values"),
+  shapes (single table, population joined to events, cohort, direct from the source), grains (event time or
+  registration cohort), time-zone-aware buckets, parameters, written caveats for agents, RU/EN aliases, recorded
+  variants (where a dashboard panel differs and by how much), a verified stamp (date, window, the SQL's hash).
+- **One definition, several targets** — one SQL template rendered for the warehouse (runnable) and for a dashboard's
+  panel syntax, from the same body; presets reproduce the dashboard's saved state.
+- **Scenarios** — synthetic rows and exact expected results per metric; a lint that renders every metric and checks
+  tables and columns against the live warehouse; a smoke run over a short window.
+
+Ossie 0.2 has none of populations, filter bindings, roll-up rules or scenarios — so the metrics layer is ours
+(`DESIGN.md`, "Populations, filters and metric definitions").
+
 ## Database MCP servers today
 
 - **[MCP Toolbox for Databases](https://mcpservers.org/servers/googleapis/genai-toolbox)** (Google; repository

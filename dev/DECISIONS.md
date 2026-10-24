@@ -43,6 +43,16 @@ against its own version's schema at start, and a version we don't know is refuse
   (`dev/DESIGN.md`, "Documentation, distribution and hosting"). Internal design, plan, decisions and research moved to
   `dev/` the same day, so the site never publishes them.
 
+## 2026-10-24 · A metrics layer of our own beside Ossie: populations and filters first-class
+
+The author asked that the server be flexible enough to hold a registry where **every metric is filtered through another
+entity** (the population of people present, with their attributes). A production registry of that shape was studied
+(`dev/RESEARCH.md`): populations, filters bound per population with their placement, roll-up rules, templates for
+several targets, presets, scenarios. Ossie 0.2 has none of it (not even filters on metrics), and its
+`custom_extensions.data` is a JSON string — no place to author such a layer by hand. So the metrics layer is our own
+open YAML beside the Ossie model (`dev/DESIGN.md`), able to express that registry without loss; Ossie stays the model
+of the data, and can carry the layer in `custom_extensions` for interchange.
+
 ## 2026-10-24 · Python, the official MCP SDK, sqlglot, Apache-2.0, written fresh
 
 - **Python 3.12 with uv**, the official MCP Python SDK (2.x: `MCPServer`, the in-process `Client` for tests);

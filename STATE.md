@@ -19,7 +19,8 @@ is done.
 
 ## Decided
 
-The semantic layer is Apache Ossie — the 0.2 shape, 0.1.1 read too; sqlglot for parsing and translating SQL;
+The semantic layer is Apache Ossie — the 0.2 shape, 0.1.1 read too — with a metrics layer of our own beside it
+(populations, filters bound per population, roll-up rules, templates, presets, scenarios); sqlglot for parsing and translating SQL;
 Python with the official MCP SDK 2.x (`dev/DECISIONS.md`).
 
 ## Next step

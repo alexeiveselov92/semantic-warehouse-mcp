@@ -34,6 +34,10 @@ with something visible: a real agent answering through the server, its numbers c
 
 ## Milestone 4. Metrics and importers — 2 sessions
 
+- [ ] The metrics layer (`dev/DESIGN.md`, "Populations, filters and metric definitions"): populations, filters bound per
+      population with their placement (refused when unbound), metric kinds and roll-up rules, templates with the layer's
+      macros, presets, scenarios run in tests. Its schema published; the registry of `dev/RESEARCH.md` expressed in it
+      without loss as the design's first check.
 - [ ] `query_metric`: SQL compiled from the model (metric, dimensions, filters, a time range, joins along
       relationships), run through the guard; its SQL shown.
 - [ ] Importers from dbt (descriptions and `meta`, semantic models and metrics) into Ossie — Ossie's converters

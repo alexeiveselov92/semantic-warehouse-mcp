@@ -50,6 +50,36 @@ vendor name. (An open question until the first real model is written — `DECISI
 **Importers**: a dbt project's descriptions (`manifest.json`, `catalog.json` — model and column descriptions,
 `meta`) and its semantic models and metrics into Ossie; Ossie's own converters first, where they do the job.
 
+## Populations, filters and metric definitions — the metrics layer
+
+Ossie describes datasets, fields, relationships and simple metric expressions. A production metrics registry needs
+more (`RESEARCH.md`, "What a production metrics registry needs"), and Ossie 0.2 has no filters on metrics at all.
+So the metrics layer is **ours — an open, documented, versioned YAML beside the Ossie model**, referring to its
+datasets and fields, flexible enough to hold such a registry whole:
+
+- **Populations** (drivers) — who a metric is computed on: a dataset, its time column, its grain key (`[user_id,
+  event_date]`), the predicates that always apply, the switches a person may turn on, the longest window one query may
+  scan, and the dimensions it may be broken down by — each marked whether it **partitions** the population (one group
+  per member: only then may a distinct count be summed across groups).
+- **Filters** — defined once (a kind: flag, date, single or multi value; how to list its values; a default), and
+  **bound per population**: which column on that population, and **where the predicate goes** — on the population
+  (filter the people, then join their events) or on the event side. A filter not bound to a metric's population is
+  **refused**, never replaced by a look-alike column. This is how every metric — money from purchases too — is filtered
+  through another entity (the people present that day, with their attributes).
+- **Metrics** — a kind (additive, distinct count, ratio, distribution), a unit, **how it rolls up** over time and over a
+  dimension (sum, recompute from components, sum only over a partitioning dimension, none), components for a ratio, the
+  population and the event dataset, a shape (one table, a population joined to events per grain key, a cohort), a grain
+  (by event time, or by cohort), parameters (grain, time zone, filters, one dimension, the metric's own — a currency),
+  rules for agents to read before using it, aliases in the languages people ask in, recorded variants, and a verified
+  stamp. Its SQL: compiled from the structure, **or a template with the layer's macros** (the population, the event
+  side, the join keys, the grouping) rendered for the connection's dialect — for what structure can't say.
+- **Presets** — named sets of parameter values ("as the dashboard has it saved"): reproducing, never a second definition.
+- **Scenarios** — synthetic rows and the exact expected result per metric, run in tests: a definition change that moves
+  a number fails a scenario first.
+
+The registry described in `RESEARCH.md` must be expressible in this layer without loss — the first check of its design.
+Ossie stays the model of the data; an Ossie document can carry the layer in `custom_extensions` for interchange.
+
 ## Tools (all read-only)
 
 | Tool | What |
