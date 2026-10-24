@@ -52,13 +52,13 @@ The engine production work runs on (the author, 2026-10-24) — moved up from "t
       not in code. ✅ 2026-10-24 — run on a large real catalog (in a scratch copy): every table and column, checked
       against the team's own tag rules.
 - [x] ClickHouse users with `readonly=1` (found on a real installation, 2026-10-24): such a user may not change a
-      limit, so the adapter's per-query limits are refused. ✅ 2026-10-24 — refused at start naming `readonly = 2`
-      (`dev/DECISIONS.md`), a test user of each kind in the ClickHouse tests.
-- [ ] ClickHouse before 24.3 (a real installation runs 22.11, 2026-10-24). Measured on 22.11 and 23.8: they know
-      `EXPLAIN QUERY TREE` but answer it unresolved (names as `IDENTIFIER`, no table) — a reading that would name no
-      table, `x IN secret.t` included; with `run_passes = 1` 22.11 resolves simple queries but fails CTEs in a `JOIN`
-      and `ARRAY JOIN`. ✅ Refused at start by checking resolution (and naming an unknown setting), never by luck.
-      Open: whether to serve them at all — the author decides (`EXPLAIN AST` read by the adapter, or not).
+      limit. ✅ 2026-10-24 — served within its profile (the author's choice): no limit sent, the answer read no further
+      than one row past the shown, the query stopped by its id; a profile that cuts silently, or a user that could not
+      stop a query and has no time limit, refused (`dev/DECISIONS.md`); a test user of each kind.
+- [x] ClickHouse before 24.3 (a real installation runs 22.11, 2026-10-24): it answers `EXPLAIN QUERY TREE` unresolved —
+      a reading naming no table. ✅ 2026-10-24 — the resolved tree asked for (`run_passes = 1`: 26 of 27 analyst
+      queries resolve on 22.11), an unresolved one refused, settings a server does not know not sent; checked live.
+- [x] Beyond the plan, from the live runs: `missing_tables: leave_out` for a model ahead of its database. ✅ 2026-10-24
 - [ ] Skills folders (`list_skills`, `get_skill`); context and skills read straight from a git repository.
 - [ ] The dialect question settled (ANSI SQL translated by sqlglot, engine variants in `custom_extensions`) and
       written in `DECISIONS.md`.
@@ -106,8 +106,9 @@ The engine production work runs on (the author, 2026-10-24) — moved up from "t
 
 ## Milestone 9. Release — 1 session
 
-- [x] Ahead of it, at the author's word (2026-10-24): 0.1.0, pre-alpha — the package on PyPI by trusted publishing
-      (`publish.yml`), the image on GHCR (`image.yml`), for a `v*` tag that is the package's version.
+- [x] Ahead of it, at the author's word: 0.1.0, pre-alpha — the package on PyPI by trusted publishing (`publish.yml`),
+      the image on GHCR (`image.yml`), for a `v*` tag that is the package's version. ✅ 2026-10-24 — published, installed
+      from PyPI with `uvx`, the image pulled without signing in.
 - [ ] 1.0: docs for agents and for people who run it; checked with a second MCP client (not Claude).
 
 ## Later

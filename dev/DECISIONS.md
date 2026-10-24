@@ -268,3 +268,12 @@ Found on a real warehouse: a model imported from a dbt project's main named two 
 holding every source to its connection, would not start. A connection may now say `missing_tables: leave_out`: such a
 dataset is taken out of the model with its relationships, named by `--check` and in the server's log; `refuse` stays
 the default. A source that is not readable is refused either way — leaving out is only for what is not there.
+
+## 2026-10-24 · 0.1.0 released, pre-alpha, by trusted publishing
+
+**The author**: publish the package now, ahead of milestone 9. Version 0.1.0, marked pre-alpha (interfaces may still
+change). The package goes to PyPI by trusted publishing — no token anywhere: PyPI trusts `publish.yml` in the `pypi`
+environment of this repository, as the author's detectkit does — and only for a tag `v<version>` that is
+`pyproject.toml`'s version, so a release is one commit and one tag. The image is published for the same tag (GHCR,
+public, its version and commit, never `latest`). The sdist carries the code, the tests, the examples and the guide —
+not `dev/`, the session files or CI. 1.0 stays milestone 9's: docs for agents and operators, a second MCP client.
