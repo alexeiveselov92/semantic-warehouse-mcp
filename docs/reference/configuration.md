@@ -6,6 +6,7 @@ One YAML file tells the server which databases it reads and how. Pass it with `-
 ```yaml
 instructions: Dates are UTC.
 context: [context/]
+skills: [skills/]
 vocabularies: [vocabulary/acme.yaml]
 
 connections:
@@ -63,6 +64,7 @@ Required: a list of at least one connection. Each connection:
 | `limits` | | the limits of one query — see below |
 | `instructions` | | your own rules for agents working with this database, as text — see [Instructions and context](#instructions-and-context) |
 | `context` | | your own documents about this database: files and folders — see [Instructions and context](#instructions-and-context) |
+| `skills` | | your own skills for this database: folders — see [Skills](#skills) |
 | `semantic_models` | | its semantic models in Apache Ossie: files and folders — see [Semantic models and vocabularies](#semantic-models-and-vocabularies) |
 | `missing_tables` | | what a semantic model's table the database does not hold does: `refuse` (the default) stops the server, naming it; `leave_out` takes that dataset (and its relationships) out of the model, named by `--check` and in the server's log — for a model made from a project ahead of the database (a dbt model not built yet) |
 
@@ -129,6 +131,53 @@ edited or added document is served without a restart. Every path must exist when
 documents of one scope may share a name: a file is named by its own name, a folder's files as
 `<folder>/<path inside it>`.
 
+## Skills
+
+A skill is how a team does a kind of task — answers a kind of question, checks a number, puts a report together —
+written for agents in the [Agent Skills](https://agentskills.io/specification) format: a folder holding a `SKILL.md`
+and, beside it, whatever it refers to (`references/`, `scripts/`, `assets/`). `skills` names such folders, for the
+whole server (at the top of the file) and for each connection, relative to the configuration file's folder:
+
+```yaml
+skills: [skills/]                      # a folder of skills: each folder inside it holding a SKILL.md is one
+
+connections:
+  - name: shop
+    engine: duckdb
+    path: data/shop.duckdb
+    readable: ["marts.*"]
+    skills:
+      - ../analytics-repo/skills/revenue-questions   # a skill's own folder
+```
+
+A folder holding a `SKILL.md` is one skill; any other folder holds a skill in each folder inside it that holds one
+(hidden folders, and folders without a `SKILL.md`, left alone). A `SKILL.md` starts with its frontmatter:
+
+```markdown
+---
+name: revenue-questions
+description: How to answer a question about revenue in the shop — which metric, which grouping, what to check.
+---
+
+1. Use the `revenue` metric; never sum `amount` by hand.
+2. The rules of grouping are in [references/grouping.md](references/grouping.md).
+```
+
+When the server starts, every skill is checked by the format's rules, and a problem stops it, naming the file:
+
+| What | Rule |
+|---|---|
+| frontmatter | the file starts with a `---` line, and a second `---` line closes it; YAML between them, a mapping |
+| `name` | 1–64 lowercase letters, digits and hyphens, no hyphen at either end and none doubled; the folder's own name |
+| `description` | text, 1–1024 characters: what the skill does and when to use it |
+| `SKILL.md` | UTF-8 text |
+
+The frontmatter's other keys (`license`, `metadata`, `compatibility`, `allowed-tools`, a client's own) are not checked,
+and served as written with the rest. No two skills of one scope may share a name. An agent lists the skills
+(`list_skills`, with each description) and reads the one that fits (`get_skill`) — its `SKILL.md`, then any file of its
+folder it refers to. Everything is served **as written**, and read when an agent asks for it, so an edited or added
+skill is served without a restart — and a skill broken after the start is named in the answer, until it is fixed.
+
 ## Semantic models and vocabularies
 
 | Key | Where | What |
@@ -154,5 +203,5 @@ vocabulary's keys.
 
 ## Planned
 
-Read from later milestones, each documented here when it works: `skills` (folders holding a `SKILL.md`), `query_sets`
-(saved, parameterised SQL); `context`, `semantic_models` and `vocabularies` read straight from a git repository.
+Read from later milestones, each documented here when it works: `query_sets` (saved, parameterised SQL); `context`,
+`skills`, `semantic_models` and `vocabularies` read straight from a git repository.

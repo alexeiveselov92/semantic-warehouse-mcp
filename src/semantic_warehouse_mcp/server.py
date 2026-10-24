@@ -12,7 +12,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
-from . import __version__, answers, context, guard, semantic, serving
+from . import __version__, answers, context, guard, semantic, serving, skills
 from .adapters import AdapterError, TimedOut
 from .config import Config, ConfigError, Connection, load
 from .semantic import Model
@@ -31,8 +31,9 @@ INSTRUCTIONS = (
     "as the database holds it. `run_query` runs one read-only SELECT. Each query is checked first: a refusal says why "
     "and how to fix it. A large table must be bounded by its column (shown in `list_connections`, `describe_dataset` "
     "and `describe_table`). "
-    "The team that runs this server may give instructions (below, and in `list_connections`) and context documents "
-    "(`list_context`, `get_context`) — read the ones that bear on the question before querying. "
+    "The team that runs this server may give instructions (below, and in `list_connections`), context documents "
+    "(`list_context`, `get_context`) and skills — how it does a kind of task (`list_skills`, `get_skill`): read the "
+    "ones that bear on the question before querying. "
     "Every answer carries the SQL as it ran and the time — cite them."
 )
 
@@ -53,6 +54,7 @@ def build_server(config: Config | None = None) -> MCPServer:
     server = MCPServer(name="semantic-warehouse-mcp", version=__version__, instructions=instructions(config))
     connections = config.connections if config else {}
     server_context = config.context if config else ()
+    server_skills = config.skills if config else ()
     vocabularies = config.vocabularies if config else {}
     answer_characters = config.limits.answer_characters if config else 40_000
     connection_rules = {name: connection.rules for name, connection in connections.items()}
@@ -82,7 +84,8 @@ def build_server(config: Config | None = None) -> MCPServer:
         """The databases this server reads. For each connection: its name, engine and description; the team's
         instructions for it, as written; which tables are readable (schema.table patterns); which large tables a query
         must bound by which column; the limits on rows and seconds per query; the names of its semantic models (their
-        datasets in `list_datasets`) and of its context documents (read them with `get_context`)."""
+        datasets in `list_datasets`), of its context documents (read them with `get_context`) and of its skills (read
+        them with `get_skill`)."""
         items = []
         for connection in connections.values():
             item = {"name": connection.name, "engine": connection.engine}
@@ -100,12 +103,16 @@ def build_server(config: Config | None = None) -> MCPServer:
                 item["semantic_models"] = [model.name for model in connection.models]
             if connection.context:
                 item["context"] = list(context_documents(connection.name))
+            if connection.skills:
+                item["skills"] = list(skills_of(connection.name))
             items.append(item)
         answer = {}
         if config and config.instructions:
             answer["instructions"] = config.instructions
         if server_context:
             answer["context"] = list(context_documents(None))
+        if server_skills:
+            answer["skills"] = list(skills_of(None))
         return answers.render(answer, "connections", items, answer_characters, "")
 
     def context_documents(connection: str | None) -> dict:
@@ -156,16 +163,85 @@ def build_server(config: Config | None = None) -> MCPServer:
         answer: dict = {"name": name}
         if scope is not None:
             answer["connection"] = scope
-        answer |= {"characters": len(text), "offset": offset}
-        size = len(text) - offset
-        while True:
-            part = {**answer, "text": text[offset : offset + size]}
-            if offset + size < len(text):
-                part["next_offset"] = offset + size
-            rendered = answers.dumps(part)
-            if len(rendered) <= answer_characters or size <= 1:
-                return rendered
-            size = size * 9 // 10
+        return answers.in_parts(answer, text, offset, answer_characters)
+
+    # --- skills -------------------------------------------------------------------------------------------------------
+
+    def skills_of(connection: str | None) -> dict[str, skills.Skill]:
+        """A scope's skills by name — the whole server's (None) or a connection's — read anew from disk."""
+        paths = server_skills if connection is None else connections[connection].skills
+        try:
+            return skills.skills(paths)
+        except skills.SkillError as error:
+            raise ToolError(f"The skills cannot be read: {error}") from error
+
+    @server.tool(annotations=READ_ONLY, structured_output=False)
+    def list_skills(connection: str | None = None) -> str:
+        """The skills the team wrote for agents — each how it does a kind of task (answers a kind of question, checks
+        a number) — with its description, which says when to use it. Read one that fits the task with `get_skill`
+        before starting. Those for the whole server have no `connection`; give `connection` to list only the whole
+        server's and that connection's."""
+        if connection is not None:
+            pick(connection)
+        items = []
+        for scope in [None, *connections]:
+            if connection is not None and scope not in (None, connection):
+                continue
+            for skill in skills_of(scope).values():
+                item = {"name": skill.name, "description": skill.description}
+                if scope is not None:
+                    item["connection"] = scope
+                items.append(item)
+        return answers.render({}, "skills", items, answer_characters, "Give `connection` to list fewer.")
+
+    @server.tool(annotations=READ_ONLY, structured_output=False)
+    def get_skill(name: str, connection: str | None = None, file: str | None = None, offset: int = 0) -> str:
+        """One skill, as the team wrote it: its SKILL.md, with the list of the other files in its folder. A file the
+        SKILL.md refers to (`references/rules.md`) is read with `file` set to its name as the list shows it. `name` as
+        `list_skills` shows it; `connection` for a connection's skill (left out, the whole server's — or the only
+        skill of that name). A long file comes in parts: call again with `offset` set to the answer's `next_offset`."""
+        scopes = [connection] if connection is not None else [None, *connections]
+        if connection is not None:
+            pick(connection)
+        found = [(scope, skills_of(scope)[name]) for scope in scopes if name in skills_of(scope)]
+        if not found:
+            raise ToolError(f"No skill named {name!r}. list_skills shows them.")
+        if len(found) > 1 and found[0][0] is not None:
+            owners = ", ".join(scope for scope, _ in found)
+            raise ToolError(f"{name!r} is a skill of more than one connection ({owners}): give `connection`.")
+        scope, skill = found[0]
+        try:
+            inside, not_text = skills.files_of(skill)
+        except OSError as error:
+            raise ToolError(f"The files of the skill {name!r} cannot be read: {error.strerror or error}") from error
+        if file in (None, skills.SKILL_FILE):
+            path = skill.file
+        elif file in inside:
+            path = inside[file]
+        else:
+            raise ToolError(f"The skill {name!r} has no file {file!r}. get_skill without `file` lists its files.")
+        try:
+            text = skills.text_of(path, f"{name}/{path.relative_to(skill.folder).as_posix()}")
+        except skills.SkillError as error:
+            raise ToolError(f"The skill cannot be read: {error}") from error
+        if not 0 <= offset <= len(text):
+            raise ToolError(f"`offset` must be between 0 and {len(text)}, the file's length.")
+        answer: dict = {"name": skill.name}
+        if scope is not None:
+            answer["connection"] = scope
+        answer["file"] = path.relative_to(skill.folder).as_posix()
+        if path == skill.file:
+            answer["files"] = list(inside)
+            if not_text:
+                answer["not_text"] = not_text
+            listed = len(answer["files"])
+            while len(answers.dumps(answer)) > answer_characters // 2 and answer["files"]:  # the text keeps half
+                answer["files"] = answer["files"][: len(answer["files"]) * 9 // 10]
+                answer["note"] = (
+                    f"Only the first {len(answer['files'])} of the skill's {listed} files fit in the answer "
+                    f"({answer_characters} characters)."
+                )
+        return answers.in_parts(answer, text, offset, answer_characters)
 
     # --- the semantic models ------------------------------------------------------------------------------------------
 
@@ -563,8 +639,10 @@ def main(argv: list[str] | None = None) -> None:
                 print(f"    semantic model {model.name} (Ossie {model.version}): {counts}")
             if connection.left_out:
                 print(f"    left out, the database holding no table of theirs: {', '.join(connection.left_out)}")
+            print_team_files("    ", connection.context, connection.skills)
         for vendor, declared in config.vocabularies.items():
             print(f"  - vocabulary {vendor} ({declared.file}): {len(declared.keys)} keys")
+        print_team_files("  - for every connection, ", config.context, config.skills)
         return
     for connection in config.connections.values():  # said where the server's log is read
         if connection.left_out:
@@ -578,6 +656,15 @@ def main(argv: list[str] | None = None) -> None:
     except serving.HttpProblem as problem:
         print(f"semantic-warehouse-mcp: {problem}", file=sys.stderr)
         sys.exit(2)
+
+
+def print_team_files(prefix: str, documents: tuple, skill_folders: tuple) -> None:
+    """What `--check` says of a scope's context documents and skills: how many documents, which skills."""
+    if documents:
+        count = len(context.documents(documents))
+        print(f"{prefix}context: {count} document{'' if count == 1 else 's'}")
+    if skill_folders:
+        print(f"{prefix}skills: {', '.join(skills.skills(skill_folders))}")
 
 
 if __name__ == "__main__":

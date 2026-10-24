@@ -22,9 +22,9 @@ status and `read_only: true`.
 The databases the server reads. Takes nothing. For each connection: `name`, `engine`, `description` (when the
 configuration gives one), `instructions` (the team's, as written), `readable` (the `schema.table` patterns a query may
 read), `large_tables` (each `table` with the column a query must bound, `bound_by`), `limits` (`rows` and `seconds` per
-query), `semantic_models` (the names of its [semantic models](semantic-models.md)), and `context` (the names of its
-context documents). Beside the list: the `instructions` and `context` for the whole server. Reads the configuration
-only — it never reaches a database.
+query), `semantic_models` (the names of its [semantic models](semantic-models.md)), `context` (the names of its
+context documents) and `skills` (the names of its skills). Beside the list: the `instructions`, `context` and `skills`
+for the whole server. Reads the configuration only — it never reaches a database.
 
 ```json
 {"connections":[{"name":"shop","engine":"duckdb","description":"A made-up online shop.",
@@ -157,3 +157,26 @@ document; left out, the whole server's — or the only document of that name), a
 `connection`, `characters` (the whole document's), `offset`, and `text`. A document longer than an answer can hold
 comes in parts: `next_offset` says where the next part starts — call again with it. Only listed documents are served:
 no other file can be named.
+
+## `list_skills`
+
+The skills the team wrote for agents ([configuration](configuration.md#skills)) — each how it does a kind of task. Takes
+`connection` (optional: then only the whole server's skills and that connection's). Answers each skill's `name`,
+`description` (as its `SKILL.md` writes it — what the skill does and when to use it), and `connection` — absent for a
+skill of the whole server.
+
+```json
+{"skills":[{"name":"revenue-questions","description":"How to answer a question about revenue in the shop — which metric, which grouping, what to check.","connection":"shop"}]}
+```
+
+## `get_skill`
+
+One skill, exactly as written. Takes `name` (as `list_skills` shows it), `connection` (for a connection's skill; left
+out, the whole server's — or the only skill of that name), `file` (optional: a file of the skill's folder, as `files`
+lists it), and `offset` (default 0). Answers `name`, `connection`, `file` (`SKILL.md` unless another is asked for),
+`characters` (the whole file's), `offset`, and `text` — the whole file, its frontmatter too. With `SKILL.md` it also
+answers `files`: every other file of the skill's folder an agent may read — its references, scripts, templates — and
+`not_text`: the files that are not text (images, archives), which are listed but not served. A file longer than an
+answer can hold comes in parts: `next_offset` says where the next part starts — call again with it. Only listed files
+are served: no other path can be named; hidden files and folders (`.git`) are neither listed nor served. A skill with
+more files than half an answer can hold lists the first that fit, and its `note` says how many there are.

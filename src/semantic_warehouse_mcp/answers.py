@@ -162,6 +162,21 @@ def render_fitting(
     return render(current, key, items, max_characters, hint)
 
 
+def in_parts(answer: dict[str, Any], text: str, offset: int, max_characters: int) -> str:
+    """A text from `offset` on, in the answer beside `characters` (the whole text's) and `offset` — as much of it as
+    fits; when the rest does not, `next_offset` says where the next part starts."""
+    answer = {**answer, "characters": len(text), "offset": offset}
+    size = len(text) - offset
+    while True:
+        part = {**answer, "text": text[offset : offset + size]}
+        if offset + size < len(text):
+            part["next_offset"] = offset + size
+        rendered = dumps(part)
+        if len(rendered) <= max_characters or size <= 1:
+            return rendered
+        size = size * 9 // 10
+
+
 def _cut(answer: dict[str, Any], key: str, items: list[Any], keep: int, max_characters: int, hint: str) -> dict:
     note = f"Only the first {keep} of {len(items)} {key} fit in the answer ({max_characters} characters)."
     note = f"{note} {hint}" if hint else note

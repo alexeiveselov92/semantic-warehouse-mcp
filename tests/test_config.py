@@ -144,7 +144,7 @@ def test_the_command_checks_and_exits(shop_path, capsys):
 def test_the_example_configuration_holds(tmp_path):
     """examples/config.example.yaml, over the made-up shop its script builds."""
     shutil.copy(EXAMPLES / "config.example.yaml", tmp_path / "config.example.yaml")
-    for folder in ("context", "semantic", "vocabulary"):
+    for folder in ("context", "semantic", "skills", "vocabulary"):
         shutil.copytree(EXAMPLES / folder, tmp_path / folder)
     (tmp_path / "data").mkdir()
     subprocess.run(
@@ -155,6 +155,7 @@ def test_the_example_configuration_holds(tmp_path):
     assert config.connections["shop"].context == ((tmp_path / "context").resolve(),)
     assert [model.name for model in config.connections["shop"].models] == ["shop"]
     assert set(config.vocabularies) == {"acme"}
+    assert config.skills == ((tmp_path / "skills").resolve(),)
 
 
 OFFLINE = """

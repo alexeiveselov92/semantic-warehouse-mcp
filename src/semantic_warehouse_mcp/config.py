@@ -11,7 +11,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from . import files, guard, semantic, vocabulary
+from . import files, guard, semantic, skills, vocabulary
 from .adapters import ENGINES, Adapter, AdapterError, adapter_class
 from .context import ContextError, documents
 from .semantic import Model
@@ -59,6 +59,7 @@ class ConnectionEntry(BaseModel):
     limits: ConnectionLimits = ConnectionLimits()
     instructions: str | None = None
     context: list[str] = []
+    skills: list[str] = []
     semantic_models: list[str] = []
     missing_tables: Literal["refuse", "leave_out"] = "refuse"
 
@@ -72,6 +73,7 @@ class ConfigFile(_Strict):
     limits: ServerLimits = ServerLimits()
     instructions: str | None = None
     context: list[str] = []
+    skills: list[str] = []
     vocabularies: list[str] = []
 
 
@@ -87,6 +89,7 @@ class Connection:
     rules: guard.Rules
     instructions: str | None = None
     context: tuple[pathlib.Path, ...] = ()
+    skills: tuple[pathlib.Path, ...] = ()
     models: tuple[Model, ...] = ()
     # With `missing_tables: leave_out`: each dataset left out because the database holds no table of its source.
     left_out: tuple[str, ...] = ()
@@ -99,6 +102,7 @@ class Config:
     limits: ServerLimits
     instructions: str | None = None
     context: tuple[pathlib.Path, ...] = ()
+    skills: tuple[pathlib.Path, ...] = ()
     # By vendor name, one for the whole server: a vendor's keys mean the same in every model that uses them.
     vocabularies: dict[str, Vocabulary] = field(default_factory=dict)
 
@@ -166,8 +170,9 @@ def parse(data: Any, *, source: str, base_dir: pathlib.Path, reach: bool = True)
             continue
         table_problems = _check_tables(entry)
         context_paths, context_problems = _context(entry.context, base_dir)
+        skill_paths, skill_problems = _skills(entry.skills, base_dir)
         models, model_problems = _models(entry.semantic_models, base_dir)
-        entry_problems = table_problems + context_problems + model_problems
+        entry_problems = table_problems + context_problems + skill_problems + model_problems
         if entry_problems:
             problems.extend(f"{where} → {problem}" for problem in entry_problems)
             continue
@@ -197,11 +202,14 @@ def parse(data: Any, *, source: str, base_dir: pathlib.Path, reach: bool = True)
             rules=rules,
             instructions=entry.instructions,
             context=context_paths,
+            skills=skill_paths,
             models=tuple(models),
             left_out=_left_out(missing),
         )
     server_context, server_context_problems = _context(parsed.context, base_dir)
     problems.extend(server_context_problems)
+    server_skills, server_skill_problems = _skills(parsed.skills, base_dir)
+    problems.extend(server_skill_problems)
     if problems:
         raise ConfigError(source, problems)
     return Config(
@@ -210,6 +218,7 @@ def parse(data: Any, *, source: str, base_dir: pathlib.Path, reach: bool = True)
         limits=parsed.limits,
         instructions=parsed.instructions,
         context=server_context,
+        skills=server_skills,
         vocabularies=vocabularies,
     )
 
@@ -239,6 +248,20 @@ def _context(entries: list[str], base_dir: pathlib.Path) -> tuple[tuple[pathlib.
             documents(paths)
         except ContextError as error:
             problems.append(f"context: {error}")
+    return paths, problems
+
+
+def _skills(entries: list[str], base_dir: pathlib.Path) -> tuple[tuple[pathlib.Path, ...], list[str]]:
+    """Skill folders, relative to the configuration's folder; each must exist and hold a skill, every skill's SKILL.md
+    must follow the format, and no two skills may share a name."""
+    paths = tuple((base_dir / entry).resolve() for entry in entries)
+    problems = [f"skills: {entry!r} does not exist ({path})" for entry, path in zip(entries, paths, strict=True)
+                if not path.exists()]  # fmt: skip
+    if not problems:
+        try:
+            skills.skills(paths)
+        except skills.SkillError as error:
+            problems.append(f"skills: {error}")
     return paths, problems
 
 

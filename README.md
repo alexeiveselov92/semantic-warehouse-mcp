@@ -6,7 +6,7 @@ the way an analyst does: knowing what the data means. You give it your semantic 
 it lets agents find the right tables, read what they mean and query them, safely.
 
 > **Status: pre-alpha** — working, and used on real warehouses; its interfaces may still change. Metrics, saved query
-> sets, skills and more databases are on their way ([the plan](https://github.com/alexeiveselov92/semantic-warehouse-mcp/blob/main/dev/PLAN.md)).
+> sets and more databases are on their way ([the plan](https://github.com/alexeiveselov92/semantic-warehouse-mcp/blob/main/dev/PLAN.md)).
 
 ## What it does now
 
@@ -21,7 +21,8 @@ it lets agents find the right tables, read what they mean and query them, safely
   vocabulary you declare and served with what each value means.
 - **An importer from dbt**: `semantic-warehouse-mcp import-dbt` writes your dbt project's tables, descriptions, `meta`
   and tags as an Ossie model — the mapping yours, in its configuration.
-- **Your own context**: instructions and documents served to agents as written.
+- **Your own context and skills**: instructions, documents and skills (the [Agent Skills](https://agentskills.io)
+  format: a folder with a `SKILL.md` and the files it refers to) served to agents as written.
 - **Any MCP client**: stdio for one person's agent, Streamable HTTP for a server a team shares (a token on every
   request, `/health`, a container image).
 
