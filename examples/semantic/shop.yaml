@@ -1,6 +1,6 @@
 # A made-up shop's semantic model in Apache Ossie (https://ossie.apache.org/) — an example, not real data.
 # `custom_extensions` carries what is the shop's own: here, where the code that writes each table lives.
-# Valid against Ossie's schema at 0.2.0.dev0 (checked 2026-10-24; docs/DECISIONS.md, "Which Ossie").
+# Valid against Ossie's schema at 0.2.0.dev0 (checked 2026-10-24; dev/DECISIONS.md, "Which Ossie").
 version: "0.2.0.dev0"
 name: shop
 description: Orders and customers of a made-up online shop.

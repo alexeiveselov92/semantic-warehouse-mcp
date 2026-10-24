@@ -4,14 +4,15 @@
 
 **Updated:** 24 October 2026.
 
-**Current milestone: 1 — one database, read-only, with the guard** (`docs/PLAN.md`). Milestone 0 (groundwork)
+**Current milestone: 1 — one database, read-only, with the guard** (`dev/PLAN.md`). Milestone 0 (groundwork)
 is done.
 
 ## What exists
 
-- The repository (public, Apache-2.0), README, `docs/DESIGN.md`, `docs/DECISIONS.md`, `docs/RESEARCH.md`,
-  `docs/PLAN.md`, the session flow (`CLAUDE.md`, `/start`, `/close`).
-- A skeleton: the server over stdio (`uv run warehouse-mcp`) with one tool, `about`; its tests through the SDK's
+- The repository (public, Apache-2.0), README; `dev/` — design, plan, decisions, research; `docs/` — the public
+  documentation's source (the site comes in a later milestone, hosted through the author's pipelab); the session
+  flow (`CLAUDE.md`, `/start`, `/close`).
+- A skeleton: the server over stdio (`uv run semantic-warehouse-mcp`) with one tool, `about`; its tests through the SDK's
   in-process client (every tool read-only; `about` answers); ruff; CI on GitHub Actions.
 - Examples of what the server will read (`examples/`): a configuration draft, a made-up shop's semantic model in
   Apache Ossie (valid against Ossie's 0.2.0.dev0 schema), a context document, a skill, a saved query set.
@@ -19,7 +20,7 @@ is done.
 ## Decided
 
 The semantic layer is Apache Ossie — the 0.2 shape, 0.1.1 read too; sqlglot for parsing and translating SQL;
-Python with the official MCP SDK 2.x (`docs/DECISIONS.md`).
+Python with the official MCP SDK 2.x (`dev/DECISIONS.md`).
 
 ## Next step
 

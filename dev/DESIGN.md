@@ -1,4 +1,4 @@
-# Design — warehouse-mcp
+# Design — semantic-warehouse-mcp
 
 The working design. A decision that changes it goes to [DECISIONS.md](DECISIONS.md) first.
 
@@ -96,6 +96,20 @@ the numbers its own way.
 
 stdio for one person's agent; Streamable HTTP for a shared server (a bearer token, or behind the
 organisation's gateway). Checked with more than one client.
+
+## Documentation, distribution and hosting
+
+- **Documentation**: `docs/` is the single source of the public documentation. A site is built from it with Astro +
+  Starlight (`website/`, the pattern of the author's detectkit: a `sync-docs` script imports `docs/` at build time,
+  served by nginx from an image) at `semantic-warehouse.pipelab.dev` (proposed).
+- **Distribution**: the package on PyPI (`uvx semantic-warehouse-mcp`); a container image on GHCR
+  (`ghcr.io/alexeiveselov92/semantic-warehouse-mcp`); the site's image beside it (`ghcr.io/alexeiveselov92/semantic-warehouse-mcp-web`).
+- **Hosting (the author's own)**: the author's server is run as code in `alexeiveselov92/pipelab` — Docker Compose
+  behind Traefik; each service a compose entry with its Traefik host rule and TLS; secrets in GitHub, prefixed per
+  service; a `deploy-<name>.yml` workflow that pulls and restarts a service on a `repository_dispatch` sent by this
+  project's CI. The site is one such service; an instance of the server (for the author's own use, or a public demo
+  over made-up data) is another — `/mcp` routed with no redirect, as the author's fluentkit and finkit do. Any other
+  installation runs the same image its own way.
 
 ## Not in scope (for now)
 

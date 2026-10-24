@@ -1,4 +1,4 @@
-# A DRAFT of the configuration (docs/DESIGN.md) — not read by the server yet. A made-up shop; made-up names only.
+# A DRAFT of the configuration (dev/DESIGN.md) — not read by the server yet. A made-up shop; made-up names only.
 # Secrets are named by the environment variable that holds them, never written here.
 
 connections:

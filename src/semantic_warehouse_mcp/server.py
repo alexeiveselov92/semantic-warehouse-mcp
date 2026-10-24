@@ -1,4 +1,4 @@
-"""The MCP server. Every tool is read-only and says so (docs/DESIGN.md, "The guard")."""
+"""The MCP server. Every tool is read-only and says so (dev/DESIGN.md, "The guard")."""
 
 from __future__ import annotations
 
@@ -11,20 +11,20 @@ from . import __version__
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False)
 
 INSTRUCTIONS = (
-    "warehouse-mcp answers questions about data from SQL databases with their semantics, and never changes "
+    "semantic-warehouse-mcp answers questions about data from SQL databases with their semantics, and never changes "
     "them. Pre-alpha: only `about` exists so far."
 )
 
 
 def build_server() -> MCPServer:
     """The server with its tools — built fresh, so tests and transports each get their own."""
-    server = MCPServer(name="warehouse-mcp", version=__version__, instructions=INSTRUCTIONS)
+    server = MCPServer(name="semantic-warehouse-mcp", version=__version__, instructions=INSTRUCTIONS)
 
     @server.tool(annotations=READ_ONLY)
     def about() -> dict:
         """What this server is and what it will offer. Call it to check the connection."""
         return {
-            "name": "warehouse-mcp",
+            "name": "semantic-warehouse-mcp",
             "version": __version__,
             "status": "pre-alpha: database tools are being built",
             "read_only": True,

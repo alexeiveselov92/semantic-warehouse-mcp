@@ -5,7 +5,7 @@ import json
 import pytest
 from mcp import Client
 
-from warehouse_mcp.server import build_server
+from semantic_warehouse_mcp.server import build_server
 
 pytestmark = pytest.mark.anyio
 
@@ -30,5 +30,5 @@ async def test_about_answers():
         result = await client.call_tool("about", {})
     assert not result.is_error
     answer = json.loads(result.content[0].text)
-    assert answer["name"] == "warehouse-mcp"
+    assert answer["name"] == "semantic-warehouse-mcp"
     assert answer["read_only"] is True

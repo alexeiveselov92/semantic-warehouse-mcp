@@ -1,4 +1,4 @@
-# CLAUDE.md — warehouse-mcp
+# CLAUDE.md — semantic-warehouse-mcp
 
 A read-only MCP server for SQL databases with their semantics: a semantic layer in an open format (Apache
 Ossie), your own metadata, metrics, context and skills — for any database and any MCP client. Open source
@@ -21,9 +21,9 @@ repository is in English**: code, comments, docs, commit messages.
 
 ## What a session reads
 
-At the start (`/start` does it): `STATE.md` — where we are; the current milestone's section of `docs/PLAN.md`.
-When relevant, by section: `docs/DESIGN.md` (how it works), `docs/DECISIONS.md` (what is decided, grep it),
-`docs/RESEARCH.md` (Ossie, what exists, lessons carried).
+At the start (`/start` does it): `STATE.md` — where we are; the current milestone's section of `dev/PLAN.md`.
+When relevant, by section: `dev/DESIGN.md` (how it works), `dev/DECISIONS.md` (what is decided, grep it),
+`dev/RESEARCH.md` (Ossie, what exists, lessons carried).
 
 ## Who the author is
 
@@ -43,12 +43,15 @@ estimates — sessions. Every session ends with something visible.
 - **Semantics are served, never re-told.** The model's descriptions, `ai_context`, `custom_extensions`, documents
   and skills reach agents as written — never rephrased into code or into the server's own words.
 - **Read-only, checked.** The database's read-only user holds the line; the guard makes refusals clear
-  (`docs/DESIGN.md`, "The guard"). A limit is never sent in a mode that cuts silently.
+  (`dev/DESIGN.md`, "The guard"). A limit is never sent in a mode that cuts silently.
 - **Secrets by name.** The configuration names the variable; the value never appears in a file, a log, an answer
   or an error.
 - **Any client.** stdio and Streamable HTTP; tool annotations (`read_only_hint`, `destructive_hint`) on every tool;
   answers capped; every answer with its SQL and time.
-- **Written fresh.** The author's earlier company platform informs the design (`docs/RESEARCH.md`); its code is not
+- **`docs/` is the public documentation** — the source of the project's site. A change that alters what a user
+  sees or does updates its page in the same commit. Design, plans, decisions and research live in `dev/`, never on the
+  site.
+- **Written fresh.** The author's earlier company platform informs the design (`dev/RESEARCH.md`); its code is not
   copied here.
 
 ## Quality
@@ -63,10 +66,10 @@ estimates — sessions. Every session ends with something visible.
 
 `/start` at the beginning, `/close` at the end.
 
-1. Read `STATE.md` and the current milestone in `docs/PLAN.md`; agree the session's plan in one paragraph.
+1. Read `STATE.md` and the current milestone in `dev/PLAN.md`; agree the session's plan in one paragraph.
 2. Do it; show the result (a real agent's answer, numbers checked).
 3. **Rewrite `STATE.md` entirely** (not append; under 100 lines); one line per change in `CHANGELOG.md`; decisions
-   in `docs/DECISIONS.md`; progress marked in `docs/PLAN.md`.
+   in `dev/DECISIONS.md`; progress marked in `dev/PLAN.md`.
 4. Commit; ask about pushing — the author works from several computers.
 
 **All context lives in this repository — nothing in Claude's local memory** (the author's rule).
@@ -78,7 +81,7 @@ estimates — sessions. Every session ends with something visible.
 | `uv sync` | the environment (Python 3.12, from `.python-version`) |
 | `uv run pytest` | the tests |
 | `uv run ruff check . && uv run ruff format --check .` | lint and format |
-| `uv run warehouse-mcp` | the server over stdio |
+| `uv run semantic-warehouse-mcp` | the server over stdio |
 
 ## Shell
 

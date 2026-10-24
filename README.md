@@ -1,4 +1,4 @@
-# warehouse-mcp
+# semantic-warehouse-mcp
 
 A read-only [MCP](https://modelcontextprotocol.io) server that lets any AI agent work with SQL databases
 the way an analyst does: knowing what the data means. You give it your semantic model in an open format
@@ -6,7 +6,7 @@ the way an analyst does: knowing what the data means. You give it your semantic 
 it lets agents describe, query and compute metrics on any database, safely.
 
 > **Status: pre-alpha, being designed.** Nothing here is ready to use yet. The plan is in
-> [docs/PLAN.md](docs/PLAN.md), the design in [docs/DESIGN.md](docs/DESIGN.md).
+> [dev/PLAN.md](dev/PLAN.md), the design in [dev/DESIGN.md](dev/DESIGN.md).
 
 ## Why
 
@@ -46,7 +46,7 @@ Python 3.12, [uv](https://docs.astral.sh/uv/), the official [MCP Python SDK](htt
 uv sync
 uv run pytest
 uv run ruff check . && uv run ruff format --check .
-uv run warehouse-mcp              # the server over stdio
+uv run semantic-warehouse-mcp              # the server over stdio
 ```
 
 ## License

@@ -1,4 +1,4 @@
-# A DRAFT of a saved query set — a dashboard's substance without the drawing (docs/DESIGN.md). Made-up shop.
+# A DRAFT of a saved query set — a dashboard's substance without the drawing (dev/DESIGN.md). Made-up shop.
 name: weekly-sales
 description: Revenue and paying customers by day, for one country or all.
 parameters:

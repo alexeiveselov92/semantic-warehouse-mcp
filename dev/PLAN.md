@@ -44,9 +44,16 @@ with something visible: a real agent answering through the server, its numbers c
 - [ ] YAML sets of named, parameterised queries; `list_query_sets`, `run_saved_query`; parameters bound by the
       driver, never pasted.
 
-## Milestone 6. Release — 1 session
+## Milestone 6. The site and the author's server — 1 session
 
-- [ ] Published on PyPI (`uvx warehouse-mcp`), a container image, docs for agents and for people who run it;
+- [ ] `website/` — Astro + Starlight built from `docs/` (detectkit's pattern), its image on GHCR, CI sending
+      `repository_dispatch` to `alexeiveselov92/pipelab`.
+- [ ] In pipelab: the site at `semantic-warehouse.pipelab.dev` and an instance of the server (its image, `/mcp` with
+      no redirect, a demo over made-up data), each with its `deploy-*.yml`; secrets prefixed in GitHub.
+
+## Milestone 7. Release — 1 session
+
+- [ ] Published on PyPI (`uvx semantic-warehouse-mcp`), a container image, docs for agents and for people who run it;
       checked with a second MCP client (not Claude).
 
 ## Later

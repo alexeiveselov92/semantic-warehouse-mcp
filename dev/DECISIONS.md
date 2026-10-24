@@ -32,6 +32,17 @@ by unwrapping `semantic_model`. The schema of each supported version is bundled 
 against its own version's schema at start, and a version we don't know is refused, naming it. The example
 `examples/semantic/shop.yaml` validates against 0.2.0.dev0 with no errors (checked 2026-10-24).
 
+## 2026-10-24 · The name keeps `mcp`; the documentation and hosting follow the author's own projects
+
+- **The name is `semantic-warehouse-mcp`** — the author's rule: `mcp` in the name and a meaning plain at a glance (the `-kit` names of
+  the author's other projects were weighed and set aside); free on PyPI.
+- **Renamed the same day** from `warehouse-mcp`: dozens of servers are named like that for plain SQL; the
+  semantics are what this one adds, and the name now says so.
+- **Documentation and hosting** as in the author's detectkit and pipelab: `docs/` the single source of a site built
+  with Astro + Starlight; the site and an instance of the server deployed by `alexeiveselov92/pipelab`
+  (`dev/DESIGN.md`, "Documentation, distribution and hosting"). Internal design, plan, decisions and research moved to
+  `dev/` the same day, so the site never publishes them.
+
 ## 2026-10-24 · Python, the official MCP SDK, sqlglot, Apache-2.0, written fresh
 
 - **Python 3.12 with uv**, the official MCP Python SDK (2.x: `MCPServer`, the in-process `Client` for tests);
