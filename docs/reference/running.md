@@ -5,7 +5,7 @@ The server runs one of two ways: over **stdio**, started by one person's agent o
 it and reaches every database before it answers anything.
 
 ```text
-semantic-warehouse-mcp --config <file> [--check]
+semantic-warehouse-mcp --config <file> [--check [--offline]]
 semantic-warehouse-mcp --config <file> --http [--host 127.0.0.1] [--port 8000] [--path /mcp] [--token-env NAME]
 semantic-warehouse-mcp import-dbt <configuration> [--strict] [--check]     # the dbt importer: its own page
 ```
@@ -14,6 +14,7 @@ semantic-warehouse-mcp import-dbt <configuration> [--strict] [--check]     # the
 |---|---|---|
 | `--config` | `SEMANTIC_WAREHOUSE_MCP_CONFIG` | the configuration file |
 | `--check` | | check the configuration, reach every database, say what is served, and exit — `0` when fine, `2` with every problem |
+| `--offline` | | with `--check`: reach no database and read no secret — for CI. Every model, vocabulary and `readable` rule is checked; a source table is held to `readable` but not looked up in the database |
 | `--http` | | serve over Streamable HTTP instead of stdio |
 | `--host` | `127.0.0.1` | with `--http`: the address to listen on — `0.0.0.0` to be reached from other machines (a container) |
 | `--port` | `8000` | with `--http`: the port |

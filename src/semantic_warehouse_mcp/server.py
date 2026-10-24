@@ -524,6 +524,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument("--config", help=f"the configuration file (or set {CONFIG_VARIABLE})")
     parser.add_argument("--check", action="store_true", help="check the configuration, reach every database, exit")
+    parser.add_argument("--offline", action="store_true", help="with --check: reach no database (for CI)")
     parser.add_argument("--http", action="store_true", help="serve over Streamable HTTP instead of stdio")
     parser.add_argument("--host", default="127.0.0.1", help="with --http: the address to listen on (127.0.0.1)")
     parser.add_argument("--port", type=int, default=8000, help="with --http: the port (8000)")
@@ -535,6 +536,8 @@ def main(argv: list[str] | None = None) -> None:
     path = args.config or os.environ.get(CONFIG_VARIABLE)
     if not path:
         parser.error(f"no configuration: pass --config <file> or set {CONFIG_VARIABLE}")
+    if args.offline and not args.check:
+        parser.error("--offline goes with --check: a server that serves reaches its databases")
     if args.http:
         try:  # before the databases are reached: a server that cannot be served safely never starts
             serving.token_of(args.token_env, args.host)
@@ -542,15 +545,17 @@ def main(argv: list[str] | None = None) -> None:
             print(f"semantic-warehouse-mcp: {problem}", file=sys.stderr)
             sys.exit(2)
     try:
-        config = load(path)
+        config = load(path, reach=not args.offline)
     except ConfigError as error:
         print(f"semantic-warehouse-mcp: {error}", file=sys.stderr)
         sys.exit(2)
     if args.check:
-        print(f"The configuration {config.source} is fine:")
+        offline = " without reaching its databases (sources held to `readable`, not looked up)" if args.offline else ""
+        print(f"The configuration {config.source} is fine{offline}:")
         for connection in config.connections.values():
             readable = ", ".join(connection.readable)
-            print(f"  - {connection.name} ({connection.engine}): reached; readable {readable}")
+            reached = "not reached" if args.offline else "reached"
+            print(f"  - {connection.name} ({connection.engine}): {reached}; readable {readable}")
             for model in connection.models:
                 datasets = model.document["datasets"]
                 metrics = len(model.document.get("metrics", [])) + sum(len(d.get("metrics", [])) for d in datasets)

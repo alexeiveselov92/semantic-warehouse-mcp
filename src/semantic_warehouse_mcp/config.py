@@ -100,15 +100,16 @@ class Config:
     vocabularies: dict[str, Vocabulary] = field(default_factory=dict)
 
 
-def load(path: str | pathlib.Path) -> Config:
-    """Read and check a configuration file, then reach every connection. Raises ConfigError naming each problem."""
+def load(path: str | pathlib.Path, reach: bool = True) -> Config:
+    """Read and check a configuration file, then reach every connection (with `reach`). Raises ConfigError naming
+    each problem."""
     path = pathlib.Path(path)
     source = str(path)
     try:
         data = files.load_file(path)
     except files.FileProblem as problem:
         raise ConfigError(source, [str(problem)]) from problem
-    return parse(data, source=source, base_dir=path.resolve().parent)
+    return parse(data, source=source, base_dir=path.resolve().parent, reach=reach)
 
 
 def parse(data: Any, *, source: str, base_dir: pathlib.Path, reach: bool = True) -> Config:

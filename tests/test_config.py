@@ -155,3 +155,37 @@ def test_the_example_configuration_holds(tmp_path):
     assert config.connections["shop"].context == ((tmp_path / "context").resolve(),)
     assert [model.name for model in config.connections["shop"].models] == ["shop"]
     assert set(config.vocabularies) == {"acme"}
+
+
+OFFLINE = """
+vocabularies: [vocabulary/acme.yaml]
+connections:
+  - name: warehouse
+    engine: clickhouse
+    url: http://127.0.0.1:9
+    user_env: SWM_NEVER_SET_USER
+    password_env: SWM_NEVER_SET_PASSWORD
+    readable: ["marts.*", "dictionaries.*", "raw.events"]
+    semantic_models: [dbt/shop-dbt.yaml]
+"""
+
+
+def test_an_offline_check_reaches_no_database_and_checks_the_rest(tmp_path, capsys):
+    """For CI, where no database and no secret is: models, vocabularies and `readable` checked all the same."""
+    shutil.copytree(EXAMPLES / "dbt", tmp_path / "dbt")
+    shutil.copytree(EXAMPLES / "vocabulary", tmp_path / "vocabulary")
+    config = write_config(tmp_path, OFFLINE)
+    main(["--config", str(config), "--check", "--offline"])
+    out = capsys.readouterr().out
+    assert "is fine without reaching its databases" in out and "warehouse (clickhouse): not reached" in out
+    assert "semantic model shop_dbt (Ossie 0.2.0.dev0): 4 datasets" in out
+    model = tmp_path / "dbt" / "shop-dbt.yaml"
+    model.write_text(model.read_text(encoding="utf-8").replace("tags: [money]", "tags: [mony]", 1), encoding="utf-8")
+    with pytest.raises(SystemExit) as stopped:
+        main(["--config", str(config), "--check", "--offline"])
+    assert (
+        stopped.value.code == 2 and "'mony' is not one of its values — did you mean 'money'?" in capsys.readouterr().err
+    )
+    with pytest.raises(SystemExit) as stopped:
+        main(["--config", str(config), "--offline"])
+    assert stopped.value.code == 2 and "--offline goes with --check" in capsys.readouterr().err
