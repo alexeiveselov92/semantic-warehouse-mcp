@@ -1,0 +1,19 @@
+{
+  "name": "semantic-warehouse-mcp-website",
+  "private": true,
+  "type": "module",
+  "description": "The documentation site of semantic-warehouse-mcp, built from docs/",
+  "scripts": {
+    "sync": "node scripts/sync-docs.mjs",
+    "dev": "npm run sync && astro dev",
+    "start": "npm run dev",
+    "build": "npm run sync && astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.40.0",
+    "astro": "^6.4.8",
+    "sharp": "^0.35.2"
+  }
+}

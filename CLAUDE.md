@@ -62,8 +62,9 @@ estimates — sessions. Every session ends with something visible.
 
 - **The site** is built from `docs/` with Astro + Starlight in `website/` — the pattern of the author's detectkit
   (`../detectkit/website` when the author's repositories sit side by side: its `sync-docs` script, its Dockerfile, its
-  `website.yml` workflow). It comes after ClickHouse and the semantic layer (`dev/PLAN.md`, milestone 4), before the other
-  engines and metrics.
+  `website.yml` workflow), at `swm.pipelab.dev`; its landing page (`website/src/pages/index.astro`) shows answers the
+  server really gives on the made-up shop — keep them true when an answer's shape changes. `cd website && npm run build`
+  builds it; a page of `docs/` the site does not list stops the build.
 - **Hosting is the author's pipelab** (`../pipelab` beside it — private, with its own `CLAUDE.md`): a Docker Compose
   service behind Traefik per site and per server instance, secrets prefixed in GitHub, a `deploy-<name>.yml` that
   redeploys on this project's `repository_dispatch`. A change there follows pipelab's own rules — read its `CLAUDE.md`

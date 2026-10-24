@@ -5,10 +5,10 @@
 **Updated:** 24 October 2026.
 
 **Released: 0.1.0, pre-alpha** — on PyPI (`uvx semantic-warehouse-mcp`) and GHCR
-(`ghcr.io/alexeiveselov92/semantic-warehouse-mcp:0.1.0`). **Milestone 3 — the semantic layer, your own metadata,
-context and skills — is done** (`dev/PLAN.md`). Next: **milestone 4, the docs site at `swm.pipelab.dev`**. Parts of
-8–9 (HTTP, the image, the release) came early, for a company's deployment. Skills and repositories are not released
-yet: they are on `main`, in no published version.
+(`ghcr.io/alexeiveselov92/semantic-warehouse-mcp:0.1.0`). **Milestones 3 (the semantic layer, your own metadata,
+context and skills) and 4 (the docs site) are done** (`dev/PLAN.md`) — the site goes live at `swm.pipelab.dev` with
+the push below. Next: **milestone 5, the other databases**. Parts of 8–9 (HTTP, the image, the release) came early, for
+a company's deployment. Skills and repositories are on `main`, in no published version yet.
 
 ## What exists
 
@@ -33,6 +33,9 @@ yet: they are on `main`, in no published version.
   `pyproject.toml`'s. The image now carries git (without Perl): 455 MB, 89 MB more than 0.1.0's.
 - **The guide** (`docs/`): getting started; reference — tools, configuration (skills, repositories), semantic models,
   the dbt importer, the guard, engines, running it. `tests/test_docs.py` holds every tool, key and option to its entry.
+- **The site** (`website/`): Astro + Starlight from `docs/` on repo-reader-mcp's pattern; a landing page whose panels
+  are the server's real answers on the made-up shop; `website.yml` builds `…/semantic-warehouse-mcp-web` and tells
+  pipelab, where `swm-web` serves it (committed in pipelab, not pushed).
 
 ## How it was verified
 
@@ -47,6 +50,8 @@ yet: they are on `main`, in no published version.
 - Real Claude Code through the server: found the skill (`list_skills`), read it and the file it refers to
   (`get_skill`), read a context document fetched from GitHub; March revenue by currency (EUR 35,057.66 / 698 orders;
   USD 12,560.35 / 241) checked by a direct query.
+- The site: built (10 pages, 428 internal links and anchors resolve), its image run (pages 200, a missing one 404,
+  healthy), screenshots looked at in light and dark at 1280 and 390 px.
 
 ## Decided this sitting (`dev/DECISIONS.md`)
 
@@ -57,17 +62,17 @@ milestone 6); **the site at `swm.pipelab.dev`** (the author; the package keeps i
 
 ## Next step
 
-Milestone 4 (`dev/PLAN.md`): `website/` — Astro + Starlight from `docs/`, detectkit's pattern (`../detectkit/website`);
-in pipelab (its own rules), the site at `swm.pipelab.dev`. Then milestone 5, the other databases.
-
-A company's deployment wants skills and repositories in an image: that needs a release (below).
+Milestone 5 (`dev/PLAN.md`): the other databases people use. A company's deployment wants skills and repositories in
+an image: that needs a release (below) — and the site already describes `main`, ahead of 0.1.0.
 
 ## What the author needs to do
 
-1. **A release for skills and repositories** when the company's deployment wants them: bump `pyproject.toml` to
-   `0.2.0`, commit, tag `v0.2.0`, push the tag (or ask the agent to bump and commit; the tag stays the author's).
-2. For the ClickHouse tests locally, Docker running. (`swm.pipelab.dev` needs no DNS work: pipelab's zone has a
-   wildcard `*.pipelab.dev`.)
+1. **Put the site live, in this order**: push this repository (`website.yml` builds the site's image); check that the
+   GHCR package `semantic-warehouse-mcp-web` is public (an anonymous `docker pull` — the agent can check); then push
+   pipelab (its commit `swm-web`). Pushing pipelab first would fail its deploy on a missing image.
+2. **A release for skills and repositories**: bump `pyproject.toml` to `0.2.0`, commit, tag `v0.2.0`, push the tag (or
+   ask the agent to bump and commit; the tag stays the author's).
+3. For the ClickHouse tests locally, Docker running. (`swm.pipelab.dev` needs no DNS work: a wildcard.)
 
 ## Don't
 

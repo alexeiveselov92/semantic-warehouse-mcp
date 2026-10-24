@@ -1,0 +1,19 @@
+---
+// A terminal-like panel: a title bar and a body of lines already painted by src/utils/paint.ts.
+interface Props {
+  title: string;
+  html: string;
+  tag?: string;
+  class?: string;
+}
+const { title, html, tag, class: className } = Astro.props;
+---
+
+<figure class:list={['term', className]}>
+  <figcaption class="term-bar">
+    <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+    <span class="term-title">{title}</span>
+    {tag && <span class="term-tag">{tag}</span>}
+  </figcaption>
+  <pre class="term-body" set:html={html} />
+</figure>

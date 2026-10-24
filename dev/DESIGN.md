@@ -327,7 +327,10 @@ Built (2026-10-24, ahead of milestones 8–9, for a company's deployment behind 
 - **Documentation**: `docs/` is the single source of the public documentation. A site is built from it with Astro +
   Starlight (`website/`, the pattern of the author's detectkit: a `sync-docs` script imports `docs/` at build time,
   served by nginx from an image) at `swm.pipelab.dev` (the author, 2026-10-24: short, no dash — as detectkit's
-  `dtk.pipelab.dev`).
+  `dtk.pipelab.dev`). Built (milestone 4) on repo-reader-mcp's site: `sync-docs.mjs` (the pages listed in the sidebar's
+  order; one not listed stops the build), a landing page outside Starlight whose panels are the server's real answers
+  on the made-up shop (`src/utils/paint.ts` colours JSON, YAML and shell at build time — no script ships), an indigo
+  accent, `website/Dockerfile.dockerignore` (the root `.dockerignore` keeps `docs/` out of the server's image).
 - **Distribution**: the package on PyPI (`uvx semantic-warehouse-mcp`); a container image on GHCR
   (`ghcr.io/alexeiveselov92/semantic-warehouse-mcp`); the site's image beside it (`ghcr.io/alexeiveselov92/semantic-warehouse-mcp-web`).
 - **Hosting (the author's own)**: the author's server is run as code in `alexeiveselov92/pipelab` — Docker Compose

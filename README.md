@@ -43,6 +43,9 @@ claude mcp add warehouse -- uvx semantic-warehouse-mcp --config /path/to/config.
 
 ## Documentation
 
+**[swm.pipelab.dev](https://swm.pipelab.dev)** — the guide, built from
+[docs/](https://github.com/alexeiveselov92/semantic-warehouse-mcp/blob/main/docs/README.md):
+
 - [Getting started](https://github.com/alexeiveselov92/semantic-warehouse-mcp/blob/main/docs/getting-started.md) — from
   nothing to an agent answering about a made-up shop's data.
 - [The guide](https://github.com/alexeiveselov92/semantic-warehouse-mcp/blob/main/docs/README.md): tools,

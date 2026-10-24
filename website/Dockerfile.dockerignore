@@ -1,0 +1,11 @@
+# The site's build context. BuildKit reads this file for website/Dockerfile in place of the root .dockerignore — which
+# leaves docs/ out of the server's image, and the site needs it: the guide's source, the changelog and the site itself,
+# without what npm installs or the build makes.
+*
+!CHANGELOG.md
+!docs
+!website
+website/node_modules
+website/dist
+website/.astro
+website/src/content/docs

@@ -1,0 +1,966 @@
+---
+/*
+ * The landing page — a page of its own, outside Starlight (the guide's pages are Starlight's, synced from docs/).
+ * Static: no script but the line that follows the theme chosen in the guide. Every answer shown in a panel is what the
+ * server printed for the made-up shop of examples/ (examples/config.example.yaml, examples/data/make_shop.py) —
+ * pretty-printed, numbers as written, a line holding only `…` where a part is left out; keep them true when an
+ * answer's shape changes. JSON answers are String.raw, so their `\n` stay as the server wrote them; BT is a backtick.
+ */
+import Logo from '../components/Logo.astro';
+import Term from '../components/Term.astro';
+import { call, fold, json, refusal, shell, yaml } from '../utils/paint';
+import '../styles/landing.css';
+
+const repo = 'https://github.com/alexeiveselov92/semantic-warehouse-mcp';
+const site = 'https://swm.pipelab.dev/';
+const start = '/getting-started/';
+const image = 'ghcr.io/alexeiveselov92/semantic-warehouse-mcp';
+const title = 'semantic-warehouse-mcp — let agents query your warehouse, knowing what the data means';
+const description =
+  'A read-only MCP server that lets any AI agent work with SQL databases the way an analyst does: knowing what the data means — a semantic layer in Apache Ossie, your own metadata, context and skills.';
+const BT = '`';
+
+// ---- the hero: an agent answers a question about revenue, the way the team does ----
+const heroAnswer = json(String.raw`{
+  "connection": "shop",
+  "sql": "SELECT currency, SUM(amount - refunded_amount) AS revenue\nFROM marts.orders\nWHERE order_date >= DATE '2026-03-01' AND order_date < DATE '2026-04-01'\nGROUP BY currency ORDER BY currency",
+  "started_at": "2026-10-24T21:06:07+00:00",
+  "seconds": 0.028,
+  "columns": [
+    {"name": "currency", "type": "VARCHAR"},
+    {"name": "revenue", "type": "DECIMAL(38,2)"}
+  ],
+  "row_count": 2,
+  "truncated": false,
+  "rows": [["EUR", 35057.66], ["USD", 12560.35]]
+}`);
+
+// ---- the semantic layer ----
+const modelYaml = yaml(`version: "0.2.0.dev0"
+name: shop
+description: Orders, customers and site events of a made-up online shop.
+ai_context:
+  instructions: >-
+    Revenue is net of refunds. A day is a calendar day in UTC.
+    Never add revenue of different currencies — group by currency.
+datasets:
+  - name: orders
+    source: marts.orders
+    primary_key: [order_id]
+    description: |-
+      One row per paid order; test orders are removed.
+      The amount is what the customer paid net of refunds, in the order's currency.
+    ai_context:
+      synonyms: [purchases, sales]
+    fields:
+      …
+      - name: order_date
+        expression:
+          dialects:
+            - dialect: ANSI_SQL
+              expression: order_date
+        dimension:
+          is_time: true
+        datatype: Date
+      …
+      - name: amount
+        expression:
+          dialects:
+            - dialect: ANSI_SQL
+              expression: amount - refunded_amount
+        description: The amount paid, net of refunds.
+        datatype: Decimal
+  …
+metrics:
+  - name: revenue
+    expression:
+      dialects:
+        - dialect: ANSI_SQL
+          expression: SUM(orders.amount)
+    description: Revenue net of refunds, in the order's currency.
+  …`);
+
+const describeDataset =
+  call('describe_dataset', { dataset: 'orders' }) +
+  json(String.raw`{
+  "connection": "shop",
+  "model": "shop",
+  "dataset": "orders",
+  "source": "marts.orders",
+  "primary_key": ["order_id"],
+  "description": "One row per paid order; test orders are removed.\nThe amount is what the customer paid net of refunds, in the order's currency.",
+  "ai_context": {"synonyms": ["purchases", "sales"]},
+  …
+  "table": {
+    "name": "marts.orders",
+    "kind": "table",
+    "comment": "One row per paid order. Test orders are removed."
+  },
+  …
+  "other_columns": [
+    {
+      "name": "amount",
+      "type": "DECIMAL(12,2)",
+      "nullable": true,
+      "comment": "What the customer paid, before refunds, in the order's currency."
+    },
+    {
+      "name": "refunded_amount",
+      "type": "DECIMAL(12,2)",
+      "nullable": true,
+      "comment": "What was refunded; 0 when nothing was."
+    }
+  ],
+  …
+  "fields": [
+    …
+    {
+      "name": "order_date",
+      "expression": {
+        "dialects": [
+          {"dialect": "ANSI_SQL", "expression": "order_date"}
+        ]
+      },
+      "dimension": {"is_time": true},
+      "datatype": "Date",
+      "custom_extensions": [
+        {"vendor_name": "acme", "data": {"tags": ["timestamp"]}}
+      ],
+      "column": {"type": "DATE", "nullable": true}
+    },
+    …
+    {
+      "name": "amount",
+      "expression": {
+        "dialects": [
+          {
+            "dialect": "ANSI_SQL",
+            "expression": "amount - refunded_amount"
+          }
+        ]
+      },
+      "description": "The amount paid, net of refunds.",
+      "datatype": "Decimal",
+      "custom_extensions": [
+        {"vendor_name": "acme", "data": {"tags": ["money"]}}
+      ]
+    }
+  ]
+}`);
+
+const describeMetric =
+  call('describe_metric', { metric: 'revenue' }) +
+  json(String.raw`{
+  "connection": "shop",
+  "model": "shop",
+  "metric": "revenue",
+  "expression": {
+    "dialects": [
+      {"dialect": "ANSI_SQL", "expression": "SUM(orders.amount)"}
+    ]
+  },
+  "description": "Revenue net of refunds, in the order's currency.",
+  …
+  "datasets": [
+    {
+      "dataset": "orders",
+      "source": "marts.orders",
+      "fields": [
+        {
+          "name": "amount",
+          "expression": {
+            "dialects": [
+              {
+                "dialect": "ANSI_SQL",
+                "expression": "amount - refunded_amount"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}`);
+
+// ---- your own metadata ----
+const vocabularyYaml = yaml(`vendor_name: acme
+unknown_keys: refuse    # an undeclared key stops the server
+
+keys:
+  tags:
+    description: What a table or a column is about — a business area, or the kind of column it is.
+    levels: [dataset, field]
+    type: list
+    in_lists: true      # shown in list_datasets too
+    values:
+      sales: Paid orders and their refunds.
+      customers: The people who buy, and where they live.
+      …
+      money: An amount of money, in the currency of its row — never add amounts of different currencies.
+      …
+  layer:
+    description: Where the table sits in the pipeline that builds it.
+    levels: [dataset]
+    in_lists: true
+    values:
+      raw: As the application sent it — events, not facts; duplicates possible.
+      mart: Business-ready — one row per entity or fact, test data removed.
+  written_by:
+    description: Where the data of this table comes from in the application's code.
+    levels: [dataset]
+    type: list          # each item free: a topic, a link
+  owner:
+    description: The team to ask about it.
+    levels: [dataset, metric]`);
+
+const ownMetadataYaml = yaml(`  - name: orders
+    source: marts.orders
+    …
+    custom_extensions:
+      - vendor_name: acme
+        data:
+          tags: [sales]
+          layer: mart
+          owner: billing team
+          written_by:
+            - topic: shop.order_paid
+              repository: https://github.com/acme/shop-backend
+              code: https://github.com/acme/shop-backend/blob/main/billing/order_paid.go`);
+
+const listDatasets =
+  call('list_datasets', { search: 'sales' }) +
+  json(String.raw`{
+  "vocabulary": {
+    "acme": {
+      "tags": {
+        "description": "What a table or a column is about — a business area, or the kind of column it is.",
+        "values": {"sales": "Paid orders and their refunds."}
+      },
+      "layer": {
+        "description": "Where the table sits in the pipeline that builds it.",
+        "values": {
+          "mart": "Business-ready — one row per entity or fact, test data removed."
+        }
+      }
+    }
+  },
+  "datasets": [
+    {
+      "connection": "shop",
+      "model": "shop",
+      "dataset": "orders",
+      "source": "marts.orders",
+      "description": "One row per paid order; test orders are removed.…",
+      "synonyms": ["purchases", "sales"],
+      "custom_extensions": [
+        {
+          "vendor_name": "acme",
+          "data": {"tags": ["sales"], "layer": "mart"}
+        }
+      ]
+    }
+  ]
+}`);
+
+const typoCheck = shell(`$ semantic-warehouse-mcp --config config.yaml --check
+semantic-warehouse-mcp: the configuration config.yaml has 2 problems:
+  - connections[0] "shop" → semantic_models → semantic/shop.yaml → datasets[0] "orders" → custom_extensions[0] (acme) → layer: 'marts' is not one of its values — did you mean 'mart'?
+  - connections[0] "shop" → semantic_models → semantic/shop.yaml → datasets[0] "orders" → fields[4] "amount" → custom_extensions[0] (acme) → tags: 'mony' is not one of its values — did you mean 'money'?`);
+
+// ---- the dbt importer ----
+const dbtYaml = yaml(`models:
+  - name: orders
+    description: |-
+      One row per paid order; test orders are removed.
+      amount is what the customer paid before refunds, refunded_amount what was refunded: revenue is
+      amount - refunded_amount, in the order's currency. Never add amounts of different currencies.
+    config:
+      event_time: order_date
+      tags: [daily]
+      meta:
+        layer: mart
+        tags: [sales]
+        owner: billing team
+    columns:
+      - name: order_id
+        description: The order.
+        config:
+          meta: { tags: [identifier] }
+        data_tests: [unique, not_null]
+      - name: order_date
+        description: The day the order was paid, UTC.
+      …`);
+
+const importYaml = yaml(`manifest: manifest.json   # from dbt parse
+output: shop-dbt.yaml     # the Ossie document written
+
+model:
+  name: shop_dbt
+  description: The made-up shop's tables, as its dbt project describes them.
+  ai_context:
+    instructions: Revenue is net of refunds. Never add amounts of different currencies — group by currency.
+
+tables: ["marts.*", "raw.events", "dictionaries.*"]
+vendor_name: acme         # meta goes under it, as written
+places:                   # your keys that are Ossie's places
+  time_column:
+    - { meta_key: tags, value: timestamp }`);
+
+const importRun = shell(`$ semantic-warehouse-mcp import-dbt import.yaml
+Wrote shop-dbt.yaml — the Ossie model shop_dbt:
+  4 datasets (2 models, 2 sources), 17 fields, 2 relationships
+  2 primary keys, 3 time columns
+  acme's data on 4 datasets and 7 fields
+$ semantic-warehouse-mcp import-dbt import.yaml --check   # in CI
+shop-dbt.yaml is current.`);
+
+const writtenYaml = yaml(`# Written by semantic-warehouse-mcp import-dbt from manifest.json (dbt 1.10.15).
+# Edit the dbt project or the importer's configuration and import again: an edit here is overwritten.
+version: 0.2.0.dev0
+name: shop_dbt
+…
+  - name: orders
+    source: marts.orders
+    primary_key: [order_id]
+    …
+    fields:
+      …
+      - name: order_date
+        expression:
+          dialects:
+            - {dialect: ANSI_SQL, expression: order_date}
+        dimension: {is_time: true}
+        description: The day the order was paid, UTC.
+      …
+    custom_extensions:
+      - vendor_name: acme
+        data:
+          layer: mart
+          tags: [sales]
+          owner: billing team`);
+
+// ---- the guard ----
+const refusedWrite =
+  call('run_query', { sql: "DELETE FROM marts.orders WHERE order_id = 'o000042'" }) +
+  refusal(`Error executing tool run_query: Refused by the guard (not_a_select): it is DELETE; only SELECT (with WITH, UNION, …) runs here.`);
+const refusedTable =
+  call('run_query', { sql: 'SELECT table_schema, table_name FROM information_schema.tables' }) +
+  refusal(`Error executing tool run_query: Refused by the guard (table_not_readable): information_schema.tables is not readable here (readable: marts.*, dictionaries.*, raw.events).`);
+const refusedUnbounded =
+  call('run_query', { sql: 'SELECT event_name, count(*) AS events FROM raw.events GROUP BY event_name' }) +
+  refusal(`Error executing tool run_query: Refused by the guard (large_table_unbounded): raw.events is a large table: bound event_date from below in the WHERE of the query that reads it, e.g. WHERE event_date >= <a date> — the column itself, not a function of it.`);
+
+const cutAnswer =
+  call('run_query', { sql: 'SELECT * FROM marts.orders ORDER BY order_id' }) +
+  json(String.raw`{
+  "connection": "shop",
+  "sql": "SELECT * FROM marts.orders ORDER BY order_id",
+  "started_at": "2026-10-24T21:06:07+00:00",
+  "seconds": 0.02,
+  …
+  "row_count": 500,
+  "truncated": true,
+  "truncated_by": ["rows"],
+  "note": "The query returned more than 500 rows, the limit of shop; only the first 500 were read. Aggregate, filter, or add LIMIT.",
+  "rows": [
+    ["o000001", "2026-02-08", "c00002", "USD", 44.7, 0],
+    ["o000002", "2026-02-17", "c00002", "USD", 149.7, 0],
+    ["o000003", "2026-02-21", "c00002", "USD", 29.8, 0],
+    …
+  ]
+}`);
+
+const refusalCodes = [
+  'empty',
+  'unparsable',
+  'not_one_statement',
+  'not_a_select',
+  'not_read_only',
+  'query_settings',
+  'function_denied',
+  'table_function',
+  'table_not_readable',
+  'large_table_unbounded',
+  'unsupported',
+  'engine_parse',
+];
+
+// ---- context and skills ----
+const repositoryYaml = yaml(`repositories:
+  - name: kit
+    url: https://github.com/alexeiveselov92/semantic-warehouse-mcp.git
+    ref: main
+    # token_env: KIT_TOKEN  — for a private one
+
+skills: [{ repository: kit, path: examples/skills }]
+
+connections:
+  - name: shop
+    engine: duckdb
+    path: data/shop.duckdb
+    readable: ["marts.*", "dictionaries.*", "raw.events"]
+    large_tables:
+      - { table: raw.events, bound_by: event_date }
+    context: [{ repository: kit, path: examples/context }]`);
+
+const getSkill =
+  call('get_skill', { name: 'revenue-questions' }) +
+  json(String.raw`{
+  "name": "revenue-questions",
+  "file": "SKILL.md",
+  "files": ["references/grouping.md"],
+  "characters": 412,
+  "offset": 0,
+  "text": "---\nname: revenue-questions\ndescription: How to answer a question about revenue in the shop — which metric, which grouping, what to check.\n---\n\n1. Use the ${BT}revenue${BT} metric; never sum ${BT}amount${BT} by hand.\n2. Group by ${BT}currency${BT} unless the question names one — the rules are in\n   [references/grouping.md](references/grouping.md).\n3. State the period and the time zone (UTC) in the answer, and show the SQL that ran.\n"
+}`);
+
+const getContext =
+  call('get_context', { name: 'context/shop.md' }) +
+  json(String.raw`{
+  "name": "context/shop.md",
+  "connection": "shop",
+  "fetched_from": "kit",
+  "commit": "a5d595d202f284fb43ab9e75e893d312e94c5fd1",
+  "characters": 422,
+  "offset": 0,
+  "text": "# The shop's data — what an analyst would tell a new colleague\n\nA made-up example of a context document: served to agents as written (${BT}get_context${BT}).\n\n- Orders are paid orders only; abandoned carts are in ${BT}raw.events${BT} (${BT}event_name = 'cart_abandoned'${BT}).\n- Test orders from ${BT}@example.com${BT} customers are removed in ${BT}marts.orders${BT} already.\n- Prices changed on 2026-03-01: compare revenue across that date by week, not by day.\n"
+}`);
+
+const repositoryState =
+  call('list_connections') +
+  json(String.raw`{
+  "skills": ["revenue-questions"],
+  "repositories": [
+    {
+      "name": "kit",
+      "url": "https://github.com/alexeiveselov92/semantic-warehouse-mcp.git",
+      "ref": "main",
+      "commit": "a5d595d202f284fb43ab9e75e893d312e94c5fd1",
+      "fetched_at": "2026-10-24T21:07:30+00:00",
+      "checked_at": "2026-10-24T21:07:30+00:00",
+      "refresh_minutes": 10
+    }
+  ],
+  …
+}`);
+
+// ---- any client ----
+const stdioSetup = shell(`# one person's agent starts the server beside it, over stdio
+$ uvx semantic-warehouse-mcp --config config.yaml --check
+The configuration config.yaml is fine:
+  - shop (duckdb): reached; readable marts.*, dictionaries.*, raw.events
+    semantic model shop (Ossie 0.2.0.dev0): 3 datasets, 2 metrics
+    context: 1 document
+  - vocabulary acme (vocabulary/acme.yaml): 4 keys
+  - for every connection, skills: revenue-questions
+$ claude mcp add warehouse -- \\
+    uvx semantic-warehouse-mcp --config /path/to/config.yaml`);
+
+const httpSetup = shell(`# one server for a team: Streamable HTTP, at /mcp
+$ export SWM_TOKEN=…        # a long random value
+$ uvx semantic-warehouse-mcp --config config.yaml \\
+    --http --host 0.0.0.0 --token-env SWM_TOKEN
+$ curl -s localhost:8000/health
+{"status":"ok","name":"semantic-warehouse-mcp","version":"0.1.0"}
+
+# each person's agent
+$ claude mcp add --transport http warehouse \\
+    https://mcp.example.com/mcp \\
+    --header "Authorization: Bearer $SWM_TOKEN"`);
+
+const tools = [
+  'about',
+  'list_connections',
+  'list_tables',
+  'describe_table',
+  'run_query',
+  'list_datasets',
+  'describe_dataset',
+  'list_metrics',
+  'describe_metric',
+  'list_context',
+  'get_context',
+  'list_skills',
+  'get_skill',
+];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="canonical" href={site} />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={site} />
+    <meta name="color-scheme" content="light dark" />
+    <!-- Follow the theme chosen in the guide (Starlight keeps it under this key); without one, the system's. -->
+    <script is:inline>
+      try {
+        var theme = localStorage.getItem('starlight-theme');
+        if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+      } catch (e) {}
+    </script>
+  </head>
+  <body class="landing">
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <nav class="wrap nav" aria-label="Main">
+        <a class="brand" href="/">
+          <Logo size={28} />
+          <span>semantic-warehouse-mcp</span>
+        </a>
+        <div class="nav-links">
+          <a href={start}>Docs</a>
+          <a class="wide-only" href="/reference/tools/">Tools</a>
+          <a class="wide-only" href="/reference/guard/">The guard</a>
+          <a class="wide-only" href="/changelog/">Changelog</a>
+        </div>
+        <div class="nav-right">
+          <a class="gh" href={repo} aria-label="GitHub">
+            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false"
+              ><path
+                fill="currentColor"
+                d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.7 5.39-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"
+              ></path></svg
+            >
+            <span>GitHub</span>
+          </a>
+          <a class="btn btn-small btn-primary wide-only" href={start}>Get started</a>
+        </div>
+      </nav>
+    </header>
+
+    <main id="main">
+      <!-- ===== hero ===== -->
+      <section class="wrap hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="badge"><span class="dot" aria-hidden="true"></span>open source · Apache-2.0 · pre-alpha</p>
+          <h1 id="hero-title">Let agents query your warehouse — <span class="accent">knowing what the data means.</span></h1>
+          <p class="lede">
+            A read-only <a href="https://modelcontextprotocol.io">MCP</a> server that lets any AI agent work with SQL
+            databases the way an analyst does. Give it your semantic model in an open format
+            (<a href="https://ossie.apache.org/">Apache Ossie</a>), your own metadata, context and documents — and agents
+            find the right tables, read what they mean and query them, safely.
+          </p>
+          <div class="cta-row">
+            <a class="btn btn-primary" href={start}>Get started</a>
+            <a class="btn btn-ghost" href={repo}>GitHub</a>
+          </div>
+          <ul class="install" aria-label="Install">
+            <li><span>run</span><code>uvx semantic-warehouse-mcp</code></li>
+            <li><span>install</span><code>pip install semantic-warehouse-mcp</code></li>
+            <li><span>image</span><code>{image}</code></li>
+          </ul>
+          <ul class="hero-stats" aria-label="At a glance">
+            <li><strong>13</strong> read-only tools</li>
+            <li><strong>ClickHouse</strong> and <strong>DuckDB</strong></li>
+            <li><strong>stdio</strong> or <strong>Streamable HTTP</strong></li>
+          </ul>
+        </div>
+
+        <figure class="term session" aria-labelledby="session-title">
+          <figcaption class="term-bar">
+            <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span class="term-title" id="session-title">An agent asks, semantic-warehouse-mcp answers</span>
+            <span class="term-tag">read-only</span>
+          </figcaption>
+          <div class="session-body">
+            <p class="say say-you"><span class="who">you</span>What was the shop's revenue in March 2026, by currency?</p>
+            <pre class="term-body" set:html={call('list_skills') + fold('one skill: revenue-questions — which metric, which grouping, what to check')} />
+            <pre class="term-body" set:html={call('get_skill', { name: 'revenue-questions' }) + fold('use the revenue metric; group by currency; say the period, in UTC')} />
+            <pre class="term-body" set:html={call('describe_metric', { metric: 'revenue' }) + fold('SUM(orders.amount), where the field amount is amount - refunded_amount')} />
+            <pre class="term-body" set:html={call('run_query', { sql: null }) + heroAnswer} />
+            <p class="say say-agent">
+              <span class="who">agent</span>March 2026, in UTC, net of refunds: <strong>EUR 35,057.66</strong> and
+              <strong>USD 12,560.35</strong> — kept apart, never added together. The SQL that ran, and when, are in the
+              answer above.
+            </p>
+          </div>
+        </figure>
+      </section>
+
+      <!-- ===== what it reads, who it answers ===== -->
+      <section class="wrap" aria-label="Works with">
+        <div class="strip">
+          <div class="strip-group">
+            <span class="strip-label">Reads</span>
+            <ul class="chips">
+              <li>ClickHouse</li>
+              <li>DuckDB</li>
+            </ul>
+            <span class="strip-next">next:</span>
+            <ul class="chips chips-next" aria-label="Next">
+              <li>PostgreSQL</li>
+              <li>MySQL</li>
+              <li>BigQuery</li>
+              <li>Snowflake</li>
+            </ul>
+          </div>
+          <div class="strip-group">
+            <span class="strip-label">Answers</span>
+            <ul class="chips">
+              <li>Claude Code</li>
+              <li>Claude Desktop</li>
+              <li>Cursor</li>
+              <li>Codex</li>
+              <li>any MCP client</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== the semantic layer ===== -->
+      <section class="wrap section" aria-labelledby="semantic-title">
+        <p class="eyebrow">semantic layer · apache ossie</p>
+        <h2 id="semantic-title">What the data means, written once — in an open format.</h2>
+        <p class="sub">
+          A semantic model in <a href="https://ossie.apache.org/">Apache Ossie</a> says which table holds what, what each
+          column is, how tables join and how a number is counted — with <code>ai_context</code> for agents. The server
+          checks it when it starts and serves it as written, beside the tables as the database holds them now.
+          <a href="/reference/semantic-models/">Semantic models →</a>
+        </p>
+        <div class="grid-2 grid-start">
+          <div class="stack stack-loose">
+            <article class="mini">
+              <h3>The model, in Ossie</h3>
+              <p>One document per model: datasets, fields, relationships, metrics. A field may be a calculation, not a column.</p>
+              <Term title="semantic/shop.yaml" html={modelYaml} />
+            </article>
+            <article class="mini">
+              <h3>A metric, down to its columns</h3>
+              <p>The expression as written, and every field it reads — with the field's own expression.</p>
+              <Term title="describe_metric" html={describeMetric} />
+            </article>
+          </div>
+          <div class="stack stack-loose">
+            <article class="mini">
+              <h3>A dataset, with the live table beside it</h3>
+              <p>
+                Each field as the team wrote it, with its <code>column</code> as the database holds it; the columns no
+                field names in <code>other_columns</code>.
+              </p>
+              <Term title="describe_dataset" html={describeDataset} />
+            </article>
+            <ul class="facts facts-stack" aria-label="Semantic models">
+              <li><strong>Checked at start</strong> — against the schema of its Ossie version, Ossie's own rules, and the database: every source readable and there.</li>
+              <li><strong>Served as written</strong> — descriptions, <code>ai_context</code> and your own metadata reach agents in the team's words, never the server's.</li>
+              <li><strong>Two versions read</strong> — <code>0.2.0.dev0</code>, and <code>0.1.1</code> as released under the name OSI.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== your own metadata ===== -->
+      <section class="wrap section" aria-labelledby="metadata-title">
+        <div class="split">
+          <div class="split-copy">
+            <p class="eyebrow">your own metadata · vocabularies</p>
+            <h2 id="metadata-title">Your categories, owners and links — and what each one means.</h2>
+            <p class="sub">
+              Anything of your own goes where Ossie keeps it — <code>custom_extensions</code>, under your
+              <code>vendor_name</code>. A vocabulary declares its keys: where each may be written, its type, a closed list
+              of values with their definitions. The model is checked against it at start, and every answer carries the
+              definitions of the values it shows. <a href="/reference/semantic-models/#vocabularies">Vocabularies →</a>
+            </p>
+            <Term title="vocabulary/acme.yaml" html={vocabularyYaml} />
+            <p class="aside">
+              The server knows no key of any team's: categories, layers, owners, links to the code that writes a table —
+              each is yours, declared once per <code>vendor_name</code>.
+            </p>
+          </div>
+          <div class="stack">
+            <Term title="semantic/shop.yaml · the dataset's own" html={ownMetadataYaml} />
+            <Term title="list_datasets · found by its tag" html={listDatasets} />
+            <Term title="--check · two typos, named" html={typoCheck} />
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== the dbt importer ===== -->
+      <section class="wrap section" aria-labelledby="dbt-title">
+        <p class="eyebrow">dbt importer</p>
+        <h2 id="dbt-title">Described in dbt already? Don't describe it twice.</h2>
+        <p class="sub">
+          <code>import-dbt</code> reads your dbt project's <code>manifest.json</code> and writes an Ossie document: tables,
+          columns, descriptions, <code>meta</code> and tags as written. dbt's own primary keys, <code>event_time</code>
+          and <code>relationships</code> tests are read by code; which of your keys mean a time column or a primary key,
+          your configuration says. <a href="/reference/dbt-importer/">The dbt importer →</a>
+        </p>
+
+        <ol class="flow" aria-label="How a dbt project becomes a semantic model">
+          <li class="node">
+            <span class="node-ico" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path><path d="M14 3v5h5"></path><path d="M9 13h6M9 17h4"></path></svg>
+            </span>
+            <h3>Your dbt project</h3>
+            <p>Its <code>manifest.json</code>, from <code>dbt parse</code>: models, seeds, snapshots and sources, as the team described them.</p>
+          </li>
+          <li class="link" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+          </li>
+          <li class="node">
+            <span class="node-ico" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"></path><circle cx="15" cy="6" r="2"></circle><circle cx="9" cy="12" r="2"></circle><circle cx="17" cy="18" r="2"></circle></svg>
+            </span>
+            <h3>import-dbt</h3>
+            <p>Your mapping in <code>import.yaml</code>. The document is read back as the server reads it before it is written — never one it would refuse.</p>
+          </li>
+          <li class="link" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+          </li>
+          <li class="node">
+            <span class="node-ico" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5.5" rx="8" ry="3"></ellipse><path d="M4 5.5v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6"></path><path d="M4 11.5v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6"></path></svg>
+            </span>
+            <h3>An Ossie document</h3>
+            <p>Committed beside your configuration and reviewed like any file; <code>--check</code> in CI says whether it is current.</p>
+          </li>
+        </ol>
+
+        <div class="grid-2 grid-top">
+          <div class="stack">
+            <Term title="models/marts/_marts.yml · dbt" html={dbtYaml} />
+            <Term title="import.yaml" html={importYaml} />
+          </div>
+          <div class="stack">
+            <Term title="import-dbt" html={importRun} />
+            <Term title="shop-dbt.yaml · written, never edited" html={writtenYaml} />
+          </div>
+        </div>
+        <p class="aside">
+          Metrics defined in dbt's MetricFlow are left to Ossie's own converter, and the import names them. Manifests of
+          dbt 1.6 and later.
+        </p>
+      </section>
+
+      <!-- ===== the guard ===== -->
+      <section class="wrap section" aria-labelledby="guard-title">
+        <p class="eyebrow">safety · the guard</p>
+        <h2 id="guard-title">Read-only — and checked twice.</h2>
+        <p class="sub">
+          One <code>SELECT</code> at a time, parsed in the database's own dialect by
+          <a href="https://github.com/tobymao/sqlglot">sqlglot</a> and by the database itself; only the tables you allow,
+          wherever they are read; large tables bounded. Underneath, the database's own read-only means hold the line.
+          <a href="/reference/guard/">The guard →</a>
+        </p>
+
+        <div class="cards-3">
+          <article class="card">
+            <h3>A write never runs</h3>
+            <p>Anything that writes, locks or runs a command is refused before it reaches the database — in a CTE or a subquery too.</p>
+            <pre class="mini-code" set:html={refusedWrite} />
+          </article>
+          <article class="card">
+            <h3>Only the tables you allow</h3>
+            <p><code>readable</code> holds wherever a table is read — <code>FROM</code>, a join, a subquery, a CTE, a dictionary, and as the database itself says it reads it.</p>
+            <pre class="mini-code" set:html={refusedTable} />
+          </article>
+          <article class="card">
+            <h3>Large tables bounded</h3>
+            <p>A table named in <code>large_tables</code> is read only with its column bounded from below, in the query that reads it.</p>
+            <pre class="mini-code" set:html={refusedUnbounded} />
+          </article>
+        </div>
+
+        <div class="split split-even safety-row">
+          <div class="split-copy">
+            <h3 class="h3-lg">Never cut without saying so.</h3>
+            <p class="body">
+              Every answer carries the SQL exactly as it ran, when it started and how long it took — so a number can be
+              checked. Rows and time are capped per connection; a cut answer says so, and how to ask for less.
+            </p>
+            <ul class="ticks">
+              <li>
+                <strong>Read-only by the database's own means</strong> — DuckDB's file opened read-only with external access
+                off and its configuration locked; ClickHouse over HTTP <code>GET</code>, which it runs read-only whoever the
+                user is. Give the server a user that reads only what agents may.
+              </li>
+              <li>
+                <strong>Limits that refuse, never cut silently</strong> — on ClickHouse every limit refuses on overflow; a
+                user's profile that would cut silently is overridden, or refused at start. A sum over part of a table never
+                looks like the whole.
+              </li>
+              <li>
+                <strong>Answers capped</strong> — 40,000 characters by default: clients cut long answers silently, so the
+                server cuts first, and says what it left out.
+              </li>
+              <li>
+                <strong>Twelve refusals, each with its code</strong> and how to fix the query:
+                <span class="inline-list">{refusalCodes.map((code) => <code>{code}</code>)}</span>
+              </li>
+            </ul>
+          </div>
+          <Term title="run_query · past the connection's rows" html={cutAnswer} />
+        </div>
+      </section>
+
+      <!-- ===== context and skills ===== -->
+      <section class="wrap section" aria-labelledby="context-title">
+        <div class="split">
+          <div class="split-copy">
+            <p class="eyebrow">context · skills</p>
+            <h2 id="context-title">What the team knows reaches the agent — as the team wrote it.</h2>
+            <p class="sub">
+              Beyond what a table says: how it is made, what never to do, how the team answers a kind of question. For the
+              whole server or one connection — served as written, read anew when an agent asks.
+              <a href="/reference/configuration/#instructions-and-context">Context and skills →</a>
+            </p>
+            <dl class="conv">
+              <div>
+                <dt><code>instructions</code></dt>
+                <dd>short rules in the configuration — in the server's instructions the moment an agent connects</dd>
+              </div>
+              <div>
+                <dt><code>context</code></dt>
+                <dd>documents, kept where you keep them — <code>list_context</code>, <code>get_context</code></dd>
+              </div>
+              <div>
+                <dt><code>skills</code></dt>
+                <dd>
+                  folders in the <a href="https://agentskills.io">Agent Skills</a> format — a <code>SKILL.md</code> and the
+                  files it refers to, checked at start — <code>list_skills</code>, <code>get_skill</code>
+                </dd>
+              </div>
+              <div>
+                <dt><code>repositories</code></dt>
+                <dd>
+                  context and skills fetched straight from git — one commit, only the paths named; a new commit looked for
+                  every 10 minutes and served only when it passes the checks
+                </dd>
+              </div>
+            </dl>
+            <Term title="config.yaml · a repository" html={repositoryYaml} />
+            <p class="aside">
+              A token is named by the variable that holds it and sent to the repository's own address only — never in a
+              file, a command line, a log or an answer.
+            </p>
+          </div>
+          <div class="stack">
+            <Term title="get_skill · its files listed" html={getSkill} />
+            <Term title="get_context · fetched from kit" html={getContext} />
+            <Term title="list_connections · the repository's state" html={repositoryState} />
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== any client ===== -->
+      <section class="wrap section" aria-labelledby="clients-title">
+        <p class="eyebrow">any MCP client</p>
+        <h2 id="clients-title">One person over stdio. A whole team over HTTP.</h2>
+        <p class="sub">
+          Over stdio, each person's agent starts its own server. For a team, run one: one configuration, one read-only
+          user per database, nothing to install on people's computers. <a href="/reference/running/">Running it →</a>
+        </p>
+        <div class="grid-2">
+          <Term title="stdio — one person" html={stdioSetup} />
+          <Term title="Streamable HTTP — a team" html={httpSetup} />
+        </div>
+        <ul class="facts">
+          <li><strong>A token on every request</strong> — <code>401</code> without it; a server other machines can reach won't start without one.</li>
+          <li><strong><code>/health</code></strong> — answers without a token and reaches no database: a probe an outage won't turn into restarts.</li>
+          <li><strong>A container image</strong> on GHCR — non-root, on a read-only root filesystem, with <code>git</code> inside; tagged per release, never <code>latest</code>.</li>
+        </ul>
+        <p class="aside">
+          Every tool tells the client it is read-only (<code>readOnlyHint</code>), and none is destructive:
+          <span class="inline-list">{tools.map((name) => <code>{name}</code>)}</span>
+        </p>
+      </section>
+
+      <!-- ===== what it is, and isn't ===== -->
+      <section class="wrap section" aria-labelledby="fit-title">
+        <p class="eyebrow">where it fits</p>
+        <h2 id="fit-title">What it is — and isn't.</h2>
+        <p class="sub">Deliberately narrow: SQL databases with what they mean, for agents, read-only.</p>
+        <div class="cmp-grid">
+          <div class="cmp-card cmp-is">
+            <h3>It is</h3>
+            <ul>
+              <li>A read-only MCP server for SQL databases, with a semantic layer in Apache Ossie, your own metadata, context and skills beside the data.</li>
+              <li>Configured in one YAML file: connections, readable tables, large tables, limits — secrets named by their variables, never written in it.</li>
+              <li>For any MCP client, over stdio or Streamable HTTP; ClickHouse and DuckDB today.</li>
+              <li>Open source, Apache-2.0.</li>
+            </ul>
+          </div>
+          <div class="cmp-card cmp-isnt">
+            <h3>It isn't</h3>
+            <ul>
+              <li>A writer — nothing is inserted, updated, created or dropped through it.</li>
+              <li>A translator — a model's expressions are served as written; the SQL an agent runs is its own, and shown.</li>
+              <li>A metrics engine, yet — metrics are served as definitions; asking for a metric by name is next.</li>
+              <li>A dashboard tool — saved query sets, a dashboard's substance as SQL and filters, come next; drawing it never will.</li>
+              <li>Per-person access, yet — one token for everyone over HTTP, or a gateway in front decides who calls.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== call to action ===== -->
+      <section class="wrap" aria-labelledby="cta-title">
+        <div class="cta-band">
+          <h2 id="cta-title">Point your agent at your warehouse.</h2>
+          <p>
+            Run it with <code>uvx</code>, describe the connection in one YAML file, add your semantic model — written by
+            hand or imported from dbt — and connect your agent.
+          </p>
+          <div class="cta-row">
+            <a class="btn btn-primary" href={start}>Get started</a>
+            <a class="btn btn-ghost" href={repo}>GitHub</a>
+          </div>
+          <p class="cta-note">Pre-alpha — on PyPI and GHCR. Metrics, saved query sets and more databases next.</p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="wrap footer">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <a class="brand" href="/">
+            <Logo size={26} />
+            <span>semantic-warehouse-mcp</span>
+          </a>
+          <p class="tagline">A read-only MCP server for SQL databases with their semantics — for any database, any agent.</p>
+        </div>
+        <nav aria-label="Guide">
+          <p class="foot-h">Guide</p>
+          <ul>
+            <li><a href="/getting-started/">Getting started</a></li>
+            <li><a href="/reference/tools/">Tools</a></li>
+            <li><a href="/reference/configuration/">Configuration</a></li>
+            <li><a href="/reference/running/">Running it</a></li>
+            <li><a href="/guide/">About this guide</a></li>
+          </ul>
+        </nav>
+        <nav aria-label="Reference">
+          <p class="foot-h">Semantics &amp; safety</p>
+          <ul>
+            <li><a href="/reference/semantic-models/">Semantic models</a></li>
+            <li><a href="/reference/dbt-importer/">The dbt importer</a></li>
+            <li><a href="/reference/guard/">The guard</a></li>
+            <li><a href="/reference/engines/">Engines</a></li>
+          </ul>
+        </nav>
+        <nav aria-label="Project">
+          <p class="foot-h">Project</p>
+          <ul>
+            <li><a href={repo}>GitHub</a></li>
+            <li><a href={`${repo}/issues`}>Issues</a></li>
+            <li><a href="https://pypi.org/project/semantic-warehouse-mcp/">PyPI</a></li>
+            <li><a href="/changelog/">Changelog</a></li>
+            <li><a href={`${repo}/blob/main/LICENSE`}>License</a></li>
+          </ul>
+        </nav>
+      </div>
+      <div class="legal">
+        <span>semantic-warehouse-mcp · Apache-2.0 · pre-alpha</span>
+        <span>Built with Astro + Starlight</span>
+      </div>
+    </footer>
+  </body>
+</html>

@@ -67,14 +67,18 @@ The engine production work runs on (the author, 2026-10-24) — moved up from "t
       written in its connection's dialect, never translated (sqlglot's translation measured not neutral); variants per
       engine in our own `custom_extensions`; built with the metrics (milestone 6).
 
-## Milestone 4. The docs site — 1 session
+## Milestone 4. The docs site — 1 session (built the same sitting as milestone 3's end)
 
-- [ ] `website/` — Astro + Starlight built from `docs/`, the author's detectkit pattern (`../detectkit/website`: the
+- [x] `website/` — Astro + Starlight built from `docs/`, the author's detectkit pattern (`../detectkit/website`: the
       `sync-docs` script importing `docs/`, the nginx Dockerfile, the `website.yml` workflow pushing the image to GHCR and
-      sending `repository_dispatch` to pipelab).
-- [ ] In pipelab (`../pipelab`, under its own rules): the site at `swm.pipelab.dev` — a compose service
-      behind Traefik and its `deploy-*.yml`, as detectkit's site is served.
-- [ ] The guide as it stands published there; from now on every milestone's pages go live with it.
+      sending `repository_dispatch` to pipelab). ✅ 2026-10-24 — on repo-reader-mcp's site (itself detectkit's pattern):
+      a landing page whose every panel is an answer the server gave on the made-up shop, the guide's 10 pages, an indigo
+      accent and a mark of its own; built, its image run, 428 links checked, screenshots looked at in both themes.
+- [x] In pipelab (`../pipelab`, under its own rules): the site at `swm.pipelab.dev` — a compose service
+      behind Traefik and its `deploy-*.yml`, as detectkit's site is served. ✅ 2026-10-24 — committed in pipelab
+      (`swm-web`, `deploy-swm.yml`), not pushed: it goes after this repository's first image.
+- [ ] The guide as it stands published there; from now on every milestone's pages go live with it — at the push
+      (`STATE.md`, "What the author needs to do").
 
 ## Milestone 5. The other databases people use — 2 sessions
 

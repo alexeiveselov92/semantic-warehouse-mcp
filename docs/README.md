@@ -1,7 +1,8 @@
 # semantic-warehouse-mcp documentation
 
-The documentation for people who use and run semantic-warehouse-mcp. This folder is the **single source**: the
-site (Astro + Starlight, planned — `dev/PLAN.md`) is built from these files; edit them here, never in the site.
+The documentation for people who use and run semantic-warehouse-mcp. This folder is the **single source**: the site
+(Astro + Starlight, in `website/`, at [swm.pipelab.dev](https://swm.pipelab.dev)) is built from these files and carries
+every one of them — its build stops otherwise; edit them here, never in the site.
 
 How the project is built and planned is not here: that is `dev/` (design, plan, decisions, research).
 
