@@ -54,9 +54,11 @@ The engine production work runs on (the author, 2026-10-24) — moved up from "t
 - [x] ClickHouse users with `readonly=1` (found on a real installation, 2026-10-24): such a user may not change a
       limit, so the adapter's per-query limits are refused. ✅ 2026-10-24 — refused at start naming `readonly = 2`
       (`dev/DECISIONS.md`), a test user of each kind in the ClickHouse tests.
-- [ ] ClickHouse before 24.3 (a real installation runs 22.11, 2026-10-24): the adapter's own reading of a query is
-      `EXPLAIN QUERY TREE`, which older servers lack, so `check()` refuses them — decide what reads a query there
-      (`EXPLAIN AST`, `EXPLAIN SYNTAX`, …), with a container of that version in the tests.
+- [ ] ClickHouse before 24.3 (a real installation runs 22.11, 2026-10-24). Measured on 22.11 and 23.8: they know
+      `EXPLAIN QUERY TREE` but answer it unresolved (names as `IDENTIFIER`, no table) — a reading that would name no
+      table, `x IN secret.t` included; with `run_passes = 1` 22.11 resolves simple queries but fails CTEs in a `JOIN`
+      and `ARRAY JOIN`. ✅ Refused at start by checking resolution (and naming an unknown setting), never by luck.
+      Open: whether to serve them at all — the author decides (`EXPLAIN AST` read by the adapter, or not).
 - [ ] Skills folders (`list_skills`, `get_skill`); context and skills read straight from a git repository.
 - [ ] The dialect question settled (ANSI SQL translated by sqlglot, engine variants in `custom_extensions`) and
       written in `DECISIONS.md`.

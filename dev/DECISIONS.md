@@ -220,3 +220,12 @@ the fix: `readonly = 2`, which takes the limits and still writes nothing (every 
 run within the profile's own limits, reading them from `system.settings` at start, refusing a profile that cuts
 silently or sets no time limit, cutting the rows by reading one more than shown — would need the same change from a
 DBA for that user (it sets no time limit), and is not built until someone needs it.
+
+## 2026-10-24 · An engine's reading is trusted only when it shows it resolved the query
+
+Measured on ClickHouse 22.11 and 23.8: `EXPLAIN QUERY TREE` exists there but answers the tree as parsed — names as
+`IDENTIFIER`, no `TABLE` node — so the engine's reading would name no table, and `x IN secret.t` (the bypass the
+engine's reading closes) would pass. Those servers stopped at start only because they did not know a setting the
+adapter sends: a protection held by luck. Now `check()` requires the tree of `SELECT 1` to name `system.one` as a
+table, and a query whose tree holds an `IDENTIFIER` is refused — a reading that cannot show it found the tables is
+no reading. Whether servers before 24.3 are served at all (through `EXPLAIN AST`, read by the adapter) is open.

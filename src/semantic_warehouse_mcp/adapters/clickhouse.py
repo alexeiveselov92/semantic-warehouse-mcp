@@ -52,6 +52,13 @@ READONLY_ONE = (
 IMPLICIT_TABLES = {("system", "one")}
 
 TABLE_IN_TREE = re.compile(r"^\s*TABLE id: \d+, (?:alias: [^,]+, )?table_name: (\S+)\s*$", re.MULTILINE)
+# A name the analyzer has not resolved into a table, a column or a function. Before 24.3 (the analyzer off), ClickHouse
+# explains a query tree without resolving it: no table is named in it — so a tree holding one is read as no reading.
+UNRESOLVED_IN_TREE = re.compile(r"^\s*IDENTIFIER id: \d+", re.MULTILINE)
+UNRESOLVED = (
+    "ClickHouse explains queries without resolving their names (its analyzer, on from 24.3): it cannot say which "
+    "tables a query reads, so the server cannot check them — 24.3 or newer is needed"
+)
 
 
 class ClickHouseSettings(EngineSettings):
@@ -119,11 +126,20 @@ class ClickHouseAdapter(Adapter):
         return response.text
 
     def check(self) -> None:
-        self._get("SELECT 1", seconds=10)
         try:
-            self._get("EXPLAIN QUERY TREE SELECT 1", seconds=10)
+            self._get("SELECT 1", seconds=10)
+        except AdapterError as error:
+            if "UNKNOWN_SETTING" not in str(error):
+                raise
+            # A server older than the limits the server sends with every query (before 24.3, some are unknown).
+            raise AdapterError(f"ClickHouse does not know a setting the server sends with every query (24.3 or newer "
+                               f"is needed): {error}") from error  # fmt: skip
+        try:
+            tree = self._get("EXPLAIN QUERY TREE SELECT 1", seconds=10, settings={"default_format": "TSVRaw"})
         except AdapterError as error:
             raise AdapterError(f"ClickHouse cannot explain a query tree (24.3 or newer is needed): {error}") from error
+        if "system.one" not in TABLE_IN_TREE.findall(tree) or UNRESOLVED_IN_TREE.search(tree):
+            raise AdapterError(UNRESOLVED)  # a resolved tree names the table a SELECT without FROM reads
 
     def engine_reading(self, sql: str, seconds: float) -> EngineReading:
         try:
@@ -135,6 +151,8 @@ class ClickHouseAdapter(Adapter):
         first = tree.lstrip().split(" ", 1)[0]
         if first not in ("QUERY", "UNION"):
             return EngineReading(refusal=f"ClickHouse reads it as {first}, not a SELECT")
+        if UNRESOLVED_IN_TREE.search(tree):
+            return EngineReading(refusal=UNRESOLVED)
         tables = []
         for name in TABLE_IN_TREE.findall(tree):
             schema, _, table = name.partition(".")

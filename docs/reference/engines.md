@@ -10,7 +10,9 @@ itself holds on what is read.
 ## ClickHouse
 
 `engine: clickhouse` — a ClickHouse server, over its HTTP interface. Version 24.3 or newer (the server reads each
-query's tree with ClickHouse's analyzer).
+query's tree with ClickHouse's analyzer). An older server stops the server at start, saying so: it does not know some
+of the limits sent with every query, and it explains a query without resolving its names — such a reading names no
+table, so it is refused rather than taken for one that found none.
 
 | Key | | What |
 |---|---|---|
