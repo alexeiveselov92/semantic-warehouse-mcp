@@ -229,3 +229,13 @@ engine's reading closes) would pass. Those servers stopped at start only because
 adapter sends: a protection held by luck. Now `check()` requires the tree of `SELECT 1` to name `system.one` as a
 table, and a query whose tree holds an `IDENTIFIER` is refused — a reading that cannot show it found the tables is
 no reading. Whether servers before 24.3 are served at all (through `EXPLAIN AST`, read by the adapter) is open.
+
+## 2026-10-24 · Streamable HTTP and the image now, ahead of the release: a token, `/health`, stateless
+
+The author: a company's production deployment is wanted before the package is on PyPI. So the HTTP transport and the
+image come now (from milestones 8–9); the agent's defaults, each the cautious one: **a token is required** for a
+server other machines reach (`--token-env`, constant-time compared, checked before any database is reached) — a
+server on loopback may go without; **`/health`** needs no token and reaches no database, as a readiness probe should;
+**stateless, JSON answers** — replicas behind one address, nothing held per session; the **image** runs as a user
+without rights on a read-only root filesystem, and is published only for a release tag, never as `latest`. Per-person
+identity is the gateway's, not the server's (Later).

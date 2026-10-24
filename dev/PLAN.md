@@ -96,6 +96,10 @@ The engine production work runs on (the author, 2026-10-24) — moved up from "t
 
 ## Milestone 8. The author's server instance — 1 session
 
+- [x] Ahead of it, for a company's deployment (2026-10-24): Streamable HTTP (`--http`, a token by variable name,
+      `/health`, stateless), the image (`Dockerfile`, non-root, read-only root filesystem) and its workflow (built on
+      every change, published to GHCR for a `v*` tag) — `docs/reference/running.md`.
+
 - [ ] In pipelab: an instance of the server (its image from GHCR, `/mcp` routed with no redirect, a token or the
       organisation's gateway in front), its `deploy-*.yml`, secrets prefixed in GitHub — for the author's own use and a
       public demo over made-up data.

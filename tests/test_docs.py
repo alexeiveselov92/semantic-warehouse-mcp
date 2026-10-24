@@ -9,6 +9,7 @@ import pytest
 from mcp import Client
 from pydantic import BaseModel
 
+from semantic_warehouse_mcp import server
 from semantic_warehouse_mcp.adapters import ENGINES, adapter_class
 from semantic_warehouse_mcp.config import ConfigFile
 from semantic_warehouse_mcp.guard import REFUSALS
@@ -67,6 +68,13 @@ def test_every_importer_key_and_option_has_its_entry_in_the_guide():
     options = re.findall(r'add_argument\("(--[a-z-]+)"', inspect.getsource(dbt.main))
     missing = [option for option in options if f"| `{option}` |" not in page]
     assert options and not missing, f"options of import-dbt without an entry in the importer's page: {missing}"
+
+
+def test_every_option_of_the_command_has_its_entry_in_the_guide():
+    page = (DOCS / "reference" / "running.md").read_text(encoding="utf-8")
+    options = re.findall(r'add_argument\("(--[a-z-]+)"', inspect.getsource(server.main))
+    missing = [option for option in options if option != "--version" and f"| `{option}` |" not in page]
+    assert options and not missing, f"options of the command without an entry in docs/reference/running.md: {missing}"
 
 
 def test_every_engine_and_its_keys_have_their_entry_in_the_guide():

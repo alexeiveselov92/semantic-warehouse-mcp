@@ -12,7 +12,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
-from . import __version__, answers, context, guard, semantic
+from . import __version__, answers, context, guard, semantic, serving
 from .adapters import AdapterError, TimedOut
 from .config import Config, ConfigError, Connection, load
 from .semantic import Model
@@ -520,16 +520,27 @@ def main(argv: list[str] | None = None) -> None:
         return
     parser = argparse.ArgumentParser(
         prog="semantic-warehouse-mcp",
-        description="A read-only MCP server for SQL databases with their semantics. Serves over stdio.",
+        description="A read-only MCP server for SQL databases with their semantics. Serves over stdio, or HTTP.",
     )
     parser.add_argument("--config", help=f"the configuration file (or set {CONFIG_VARIABLE})")
     parser.add_argument("--check", action="store_true", help="check the configuration, reach every database, exit")
+    parser.add_argument("--http", action="store_true", help="serve over Streamable HTTP instead of stdio")
+    parser.add_argument("--host", default="127.0.0.1", help="with --http: the address to listen on (127.0.0.1)")
+    parser.add_argument("--port", type=int, default=8000, help="with --http: the port (8000)")
+    parser.add_argument("--path", default="/mcp", help="with --http: the MCP endpoint's path (/mcp)")
+    parser.add_argument("--token-env", help="with --http: the variable holding the token every request must carry")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     args = parser.parse_args(argv)
 
     path = args.config or os.environ.get(CONFIG_VARIABLE)
     if not path:
         parser.error(f"no configuration: pass --config <file> or set {CONFIG_VARIABLE}")
+    if args.http:
+        try:  # before the databases are reached: a server that cannot be served safely never starts
+            serving.token_of(args.token_env, args.host)
+        except serving.HttpProblem as problem:
+            print(f"semantic-warehouse-mcp: {problem}", file=sys.stderr)
+            sys.exit(2)
     try:
         config = load(path)
     except ConfigError as error:
@@ -548,7 +559,14 @@ def main(argv: list[str] | None = None) -> None:
         for vendor, declared in config.vocabularies.items():
             print(f"  - vocabulary {vendor} ({declared.file}): {len(declared.keys)} keys")
         return
-    build_server(config).run("stdio")
+    if not args.http:
+        build_server(config).run("stdio")
+        return
+    try:
+        serving.serve(build_server(config), host=args.host, port=args.port, path=args.path, token_env=args.token_env)
+    except serving.HttpProblem as problem:
+        print(f"semantic-warehouse-mcp: {problem}", file=sys.stderr)
+        sys.exit(2)
 
 
 if __name__ == "__main__":

@@ -17,6 +17,8 @@ How the project is built and planned is not here: that is `dev/` (design, plan, 
     document, and its configuration.
   - [The guard](reference/guard.md) — how a query is read, every refusal and why, the limits.
   - [Engines](reference/engines.md) — the databases it reads, and how each is kept read-only.
+  - [Running it](reference/running.md) — the command, stdio or HTTP for a team (its token, the health check), the
+    container image.
 
 Planned, each written with the change that makes it true:
 

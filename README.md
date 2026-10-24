@@ -51,6 +51,7 @@ uv run pytest
 uv run ruff check . && uv run ruff format --check .
 uv run python examples/data/make_shop.py    # the made-up shop the examples describe
 uv run semantic-warehouse-mcp --config examples/config.example.yaml   # the server over stdio
+# a server a team shares, over HTTP, every request with the token: docs/reference/running.md
 ```
 
 ## License

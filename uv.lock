@@ -817,6 +817,8 @@ dependencies = [
     { name = "mcp" },
     { name = "pyyaml" },
     { name = "sqlglot" },
+    { name = "starlette" },
+    { name = "uvicorn" },
 ]
 
 [package.dev-dependencies]
@@ -833,6 +835,8 @@ requires-dist = [
     { name = "mcp", specifier = ">=2.3,<3" },
     { name = "pyyaml", specifier = ">=6" },
     { name = "sqlglot", specifier = ">=27" },
+    { name = "starlette", specifier = ">=0.46" },
+    { name = "uvicorn", specifier = ">=0.34" },
 ]
 
 [package.metadata.requires-dev]

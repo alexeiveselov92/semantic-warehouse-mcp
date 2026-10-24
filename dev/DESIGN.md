@@ -287,6 +287,23 @@ the numbers its own way.
 stdio for one person's agent; Streamable HTTP for a shared server (a bearer token, or behind the
 organisation's gateway). Checked with more than one client.
 
+Built (2026-10-24, ahead of milestones 8–9, for a company's deployment behind its gateway — `serving.py`,
+`docs/reference/running.md`):
+
+- `--http` serves the same `MCPServer` through the SDK's Streamable HTTP app, **stateless and one JSON answer per
+  request** — any replica answers any request, nothing held between them.
+- **The token**: `--token-env NAME`, read at start, compared in constant time against `Authorization: Bearer …` on
+  every request but `GET /health`; required unless the server listens on loopback only, and checked before any database
+  is reached. A WebSocket is refused. A gateway's own upstream key is the token; who is asking stays at the gateway.
+- **`/health`** answers without a token and touches no database (a readiness probe; a database outage must not restart
+  pods).
+- **The image** (`Dockerfile`, `.github/workflows/image.yml`): the locked dependencies in a venv, user 10001, a
+  read-only root filesystem with `/tmp` writable, port 8000, the configuration at `/config`. Built on every change,
+  published to GHCR for a `v*` tag only, as its version and its commit, never `latest`.
+- Checked: the SDK's own client and raw HTTP against a real uvicorn (bypass attempts on the path, wrong and partial
+  tokens, a WebSocket); the image run read-only and non-root, real Claude Code answering through it over HTTP with
+  the token, its numbers checked by a direct query.
+
 ## Documentation, distribution and hosting
 
 - **Documentation**: `docs/` is the single source of the public documentation. A site is built from it with Astro +

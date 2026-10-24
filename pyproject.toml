@@ -20,6 +20,8 @@ dependencies = [
     "mcp>=2.3,<3",
     "pyyaml>=6",
     "sqlglot>=27",
+    "starlette>=0.46",
+    "uvicorn>=0.34",
 ]
 
 [project.urls]
