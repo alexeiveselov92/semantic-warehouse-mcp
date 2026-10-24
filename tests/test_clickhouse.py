@@ -11,7 +11,7 @@ from conftest import write_config
 from mcp import Client
 
 from semantic_warehouse_mcp.adapters import AdapterError, TimedOut
-from semantic_warehouse_mcp.adapters.clickhouse import ClickHouseAdapter, ClickHouseSettings
+from semantic_warehouse_mcp.adapters.clickhouse import READONLY_ONE, ClickHouseAdapter, ClickHouseSettings
 from semantic_warehouse_mcp.config import ConfigError, load
 from semantic_warehouse_mcp.server import build_server
 
@@ -73,6 +73,26 @@ def test_a_profile_that_cuts_silently_cannot_cut_through_the_server(adapter, as_
     as_user("swm_cutting")
     with pytest.raises(AdapterError, match="Limit for rows"):
         adapter.run("SELECT sum(amount), count() FROM swm_marts.orders WHERE order_id != ''", max_rows=10, seconds=10)
+
+
+def test_a_user_with_readonly_one_is_refused_naming_the_fix(adapter, as_user):
+    as_user("swm_readonly_one")
+    with pytest.raises(AdapterError) as refused:
+        adapter.check()
+    assert str(refused.value) == READONLY_ONE
+    assert "readonly = 2" in str(refused.value)
+
+
+def test_a_user_with_readonly_two_takes_the_limits_and_writes_nothing(adapter, as_user, clickhouse_url):  # noqa: F811
+    as_user("swm_readonly_two")
+    adapter.check()
+    start = time.monotonic()
+    with pytest.raises(TimedOut):  # the server's own time limit reached its query
+        adapter.run("SELECT count() FROM numbers(1000000000000)", max_rows=1, seconds=1)
+    assert time.monotonic() - start < 5
+    with pytest.raises(AdapterError, match="readonly"):
+        adapter.run("INSERT INTO swm_marts.orders (order_id) VALUES ('x')", max_rows=3, seconds=10)
+    assert admin(clickhouse_url, "SELECT count() FROM swm_marts.orders").strip() == "6"
 
 
 def test_a_profile_capping_bytes_cannot_hide_a_cut(adapter, as_user):

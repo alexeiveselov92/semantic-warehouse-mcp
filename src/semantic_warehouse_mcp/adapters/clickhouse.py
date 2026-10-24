@@ -39,6 +39,14 @@ OVERFLOW_MODES = {
 
 FORMAT = "JSONCompactEachRowWithNamesAndTypes"
 TIMEOUT_CODE = "159"  # TIMEOUT_EXCEEDED
+READONLY_CODE = "164"  # READONLY: here, a setting the user may not change
+# A user with `readonly = 1` may change no setting, so none of the limits above reaches its queries: refused, with
+# the fix. `readonly = 2` lets it take them and still write nothing — its grants, and every request a GET, hold that.
+READONLY_ONE = (
+    "the user has readonly = 1, which lets it change no setting: the server cannot give its queries their limits "
+    "(time, and the overflow modes that refuse rather than cut). Give the user readonly = 2 — it still cannot write: "
+    "every request is a GET, which ClickHouse runs read-only, and its grants hold the tables it may read"
+)
 
 # Tables ClickHouse reads by itself: `system.one` is what a SELECT without FROM reads.
 IMPLICIT_TABLES = {("system", "one")}
@@ -105,6 +113,8 @@ class ClickHouseAdapter(Adapter):
             message = re.sub(r"\s*\(version [^)]*\)\s*$", "", response.text.strip())
             if code == TIMEOUT_CODE:
                 raise TimedOut(f"stopped after {seconds:g} s")
+            if code == READONLY_CODE and "setting in readonly mode" in message:
+                raise AdapterError(READONLY_ONE)
             raise AdapterError(message)
         return response.text
 

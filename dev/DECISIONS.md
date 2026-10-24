@@ -208,3 +208,15 @@ as dbt writes it; a name holding a backslash or a control character (each engine
 Ossie document holds (not finite, not Unicode, nested past 64 levels). A lone surrogate is refused by every reader of
 the server, an escaped surrogate pair read as its character — it passed every check before and broke every answer.
 Any error of the importer's own exits 2, so `--check`'s 1 always means "not current".
+
+## 2026-10-24 · A ClickHouse user with `readonly = 1` is refused at start, naming `readonly = 2`
+
+The agent's recommendation (variant A of two), built when the author said to go on; variant B stays open. Found on a
+real installation: the read-only user agents were given had `readonly = 1` and no limit in its profile
+(`max_execution_time` 0). Such a user may change no setting — measured on ClickHouse 26.3: a limit or an overflow mode
+sent with a query is refused (code 164), while format settings, `database` and query parameters pass — so none of the
+server's limits would reach its queries, and nothing would bound them. The server stops at start with the reason and
+the fix: `readonly = 2`, which takes the limits and still writes nothing (every request a GET; the grants). Variant B —
+run within the profile's own limits, reading them from `system.settings` at start, refusing a profile that cuts
+silently or sets no time limit, cutting the rows by reading one more than shown — would need the same change from a
+DBA for that user (it sets no time limit), and is not built until someone needs it.

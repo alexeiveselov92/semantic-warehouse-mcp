@@ -37,6 +37,11 @@ A variable that is not set stops the server at start, named — its value is nev
 **Read-only, by ClickHouse's own means.** Every request is an HTTP `GET`, which ClickHouse runs read-only whoever the
 user is: no `INSERT`, `ALTER`, `CREATE`, `DROP` or `TRUNCATE` runs, even as a user allowed to write.
 
+**The user: `readonly = 2`, not `1`.** A user whose profile sets `readonly = 1` may change no setting, so the server
+cannot give its queries their limits (below) — it stops at start, saying so. Give the read-only user `readonly = 2`
+(`ALTER USER agent SETTINGS readonly = 2`): it still writes nothing — every request is a `GET`, and its grants (`GRANT
+SELECT ON marts.* TO agent`) hold what it may read — and it takes the server's limits.
+
 **Limits that never cut silently.** Every limit ClickHouse has is sent with every query, and with it the mode that
 **refuses** on overflow rather than answering with part of the data: reading, sorting, grouping, joins, sets,
 transfers and time. A user's own profile that would cut silently (`read_overflow_mode = 'break'`) is overridden — such a

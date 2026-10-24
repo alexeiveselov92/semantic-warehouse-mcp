@@ -51,8 +51,9 @@ The engine production work runs on (the author, 2026-10-24) — moved up from "t
       which of its keys become Ossie's own places (a time column, a primary key) set in the importer's configuration,
       not in code. ✅ 2026-10-24 — run on a large real catalog (in a scratch copy): every table and column, checked
       against the team's own tag rules.
-- [ ] ClickHouse users with `readonly=1` (found on a real installation, 2026-10-24): such a user may not change a
-      limit, so the adapter's per-query limits are refused — decide and build (`dev/DECISIONS.md`).
+- [x] ClickHouse users with `readonly=1` (found on a real installation, 2026-10-24): such a user may not change a
+      limit, so the adapter's per-query limits are refused. ✅ 2026-10-24 — refused at start naming `readonly = 2`
+      (`dev/DECISIONS.md`), a test user of each kind in the ClickHouse tests.
 - [ ] ClickHouse before 24.3 (a real installation runs 22.11, 2026-10-24): the adapter's own reading of a query is
       `EXPLAIN QUERY TREE`, which older servers lack, so `check()` refuses them — decide what reads a query there
       (`EXPLAIN AST`, `EXPLAIN SYNTAX`, …), with a container of that version in the tests.
