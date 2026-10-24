@@ -10,8 +10,8 @@ is done.
 ## What exists
 
 - The repository (public, Apache-2.0), README; `dev/` — design, plan, decisions, research; `docs/` — the public
-  documentation's source (the site comes in a later milestone, hosted through the author's pipelab); the session
-  flow (`CLAUDE.md`, `/start`, `/close`).
+  documentation's source, with `docs/reference/tools.md` held by a test (every tool has its entry); the session flow
+  (`CLAUDE.md`, `/start`, `/close` — the guide checked at close, context only in the repository, pushed).
 - A skeleton: the server over stdio (`uv run semantic-warehouse-mcp`) with one tool, `about`; its tests through the SDK's
   in-process client (every tool read-only; `about` answers); ruff; CI on GitHub Actions.
 - Examples of what the server will read (`examples/`): a configuration draft, a made-up shop's semantic model in
@@ -28,6 +28,9 @@ Python with the official MCP SDK 2.x (`dev/DECISIONS.md`).
 Milestone 1: the YAML configuration and its check, the adapter interface with DuckDB first, the guard on sqlglot
 (each refusal a test case, each protection a test that fails when removed), `run_query` with provenance — then
 real Claude Code over stdio answering on a made-up dataset, the number checked directly.
+
+Then milestone 2: the docs site (Astro + Starlight like detectkit's, served by pipelab) — the guide on the web from
+the first tools on.
 
 ## What the author needs to do
 

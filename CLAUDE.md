@@ -25,6 +25,8 @@ At the start (`/start` does it): `STATE.md` — where we are; the current milest
 When relevant, by section: `dev/DESIGN.md` (how it works), `dev/DECISIONS.md` (what is decided, grep it),
 `dev/RESEARCH.md` (Ossie, what exists, lessons carried).
 
+**The guide** (`docs/`, contents in `docs/README.md`): read the page of the area you change — and change it with it.
+
 ## Who the author is
 
 An analyst, **not a developer**: fluent in SQL, warehouses and semantic layers, not in Python internals. Explain
@@ -48,11 +50,32 @@ estimates — sessions. Every session ends with something visible.
   or an error.
 - **Any client.** stdio and Streamable HTTP; tool annotations (`read_only_hint`, `destructive_hint`) on every tool;
   answers capped; every answer with its SQL and time.
-- **`docs/` is the public documentation** — the source of the project's site. A change that alters what a user
-  sees or does updates its page in the same commit. Design, plans, decisions and research live in `dev/`, never on the
-  site.
+- **The guide is complete, and lives in `docs/`** — the source of the project's site. Everything a user meets — every
+  tool, setting, limit, refusal, supported host or engine — has its page; a change that alters what a user sees or does
+  updates that page **in the same commit**. `tests/test_docs.py` fails when a tool has no entry in
+  `docs/reference/tools.md`. Three readers: people who use it through their agent, people who run it, people who
+  contribute. Design, plans, decisions and research live in `dev/`, never on the site.
 - **Written fresh.** The author's earlier company platform informs the design (`dev/RESEARCH.md`); its code is not
   copied here.
+
+## The site and hosting
+
+- **The site** is built from `docs/` with Astro + Starlight in `website/` — the pattern of the author's detectkit
+  (`../detectkit/website` when the author's repositories sit side by side: its `sync-docs` script, its Dockerfile, its
+  `website.yml` workflow). It comes early (`dev/PLAN.md`, milestone 2), so the guide is read on the web from the first
+  tools on.
+- **Hosting is the author's pipelab** (`../pipelab` beside it — private, with its own `CLAUDE.md`): a Docker Compose
+  service behind Traefik per site and per server instance, secrets prefixed in GitHub, a `deploy-<name>.yml` that
+  redeploys on this project's `repository_dispatch`. A change there follows pipelab's own rules — read its `CLAUDE.md`
+  first.
+- Any other installation runs the published image its own way; nothing here assumes pipelab.
+
+## Where requirements come from
+
+A company that applies this server keeps its own inputs — its data model, the registry this server must be able to
+express, its gateway — in its own repositories. When the author works from such a company's workspace, the parent
+`CLAUDE.md` of that workspace points at them. Read them for **requirements**; never copy their names, hosts, tables,
+numbers or rules here — generalise, and show it with made-up examples.
 
 ## Quality
 
@@ -72,7 +95,11 @@ estimates — sessions. Every session ends with something visible.
    in `dev/DECISIONS.md`; progress marked in `dev/PLAN.md`.
 4. Commit; ask about pushing — the author works from several computers.
 
-**All context lives in this repository — nothing in Claude's local memory** (the author's rule).
+**All context lives in this repository — nothing in Claude's local memory** (the author's rule;
+`"autoMemoryEnabled": false` in `.claude/settings.json`). **A push is part of passing context**: the author moves
+between computers, and an unpushed `STATE.md` doesn't exist on the next one. **One session at a time, on `main`** —
+subagents in the same tree when parallelism helps; no worktrees or long-lived branches (`STATE.md` and `CHANGELOG.md`
+never merge peacefully).
 
 ## Commands
 

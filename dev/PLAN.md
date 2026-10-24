@@ -19,7 +19,16 @@ with something visible: a real agent answering through the server, its numbers c
 - [ ] `list_connections`, `run_query`, a table's columns; provenance in every answer.
 - [ ] Real Claude Code over stdio answers a question on a made-up dataset; the number checked directly.
 
-## Milestone 2. The semantic layer, context and skills — 2 sessions
+## Milestone 2. The docs site — 1 session
+
+- [ ] `website/` — Astro + Starlight built from `docs/`, the author's detectkit pattern (`../detectkit/website`: the
+      `sync-docs` script importing `docs/`, the nginx Dockerfile, the `website.yml` workflow pushing the image to GHCR and
+      sending `repository_dispatch` to pipelab).
+- [ ] In pipelab (`../pipelab`, under its own rules): the site at `semantic-warehouse.pipelab.dev` — a compose service
+      behind Traefik and its `deploy-*.yml`, as detectkit's site is served.
+- [ ] The guide as it stands after milestone 1 published there; from now on every milestone's pages go live with it.
+
+## Milestone 3. The semantic layer, context and skills — 2 sessions
 
 - [ ] Apache Ossie documents loaded and checked against the Ossie schema; `list_datasets`, `describe_dataset`,
       `list_metrics`, `describe_metric` — `ai_context` and `custom_extensions` served as they are.
@@ -27,12 +36,12 @@ with something visible: a real agent answering through the server, its numbers c
 - [ ] The dialect question settled (ANSI SQL translated by sqlglot, engine variants in `custom_extensions`) and
       written in `DECISIONS.md`.
 
-## Milestone 3. The databases people use — 2–3 sessions
+## Milestone 4. The databases people use — 2–3 sessions
 
 - [ ] ClickHouse, PostgreSQL, MySQL; then BigQuery, Snowflake — each an adapter with its read-only session, its
       guard deny-list and probes; tested against real servers in containers where they exist.
 
-## Milestone 4. Metrics and importers — 2 sessions
+## Milestone 5. Metrics and importers — 2 sessions
 
 - [ ] The metrics layer (`dev/DESIGN.md`, "Populations, filters and metric definitions"): populations, filters bound per
       population with their placement (refused when unbound), metric kinds and roll-up rules, templates with the layer's
@@ -43,19 +52,18 @@ with something visible: a real agent answering through the server, its numbers c
 - [ ] Importers from dbt (descriptions and `meta`, semantic models and metrics) into Ossie — Ossie's converters
       where they do the job.
 
-## Milestone 5. Saved query sets — 1 session
+## Milestone 6. Saved query sets — 1 session
 
 - [ ] YAML sets of named, parameterised queries; `list_query_sets`, `run_saved_query`; parameters bound by the
       driver, never pasted.
 
-## Milestone 6. The site and the author's server — 1 session
+## Milestone 7. The author's server instance — 1 session
 
-- [ ] `website/` — Astro + Starlight built from `docs/` (detectkit's pattern), its image on GHCR, CI sending
-      `repository_dispatch` to `alexeiveselov92/pipelab`.
-- [ ] In pipelab: the site at `semantic-warehouse.pipelab.dev` and an instance of the server (its image, `/mcp` with
-      no redirect, a demo over made-up data), each with its `deploy-*.yml`; secrets prefixed in GitHub.
+- [ ] In pipelab: an instance of the server (its image from GHCR, `/mcp` routed with no redirect, a token or the
+      organisation's gateway in front), its `deploy-*.yml`, secrets prefixed in GitHub — for the author's own use and a
+      public demo over made-up data.
 
-## Milestone 7. Release — 1 session
+## Milestone 8. Release — 1 session
 
 - [ ] Published on PyPI (`uvx semantic-warehouse-mcp`), a container image, docs for agents and for people who run it;
       checked with a second MCP client (not Claude).
