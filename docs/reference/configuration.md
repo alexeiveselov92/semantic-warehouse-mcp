@@ -64,6 +64,7 @@ Required: a list of at least one connection. Each connection:
 | `instructions` | | your own rules for agents working with this database, as text — see [Instructions and context](#instructions-and-context) |
 | `context` | | your own documents about this database: files and folders — see [Instructions and context](#instructions-and-context) |
 | `semantic_models` | | its semantic models in Apache Ossie: files and folders — see [Semantic models and vocabularies](#semantic-models-and-vocabularies) |
+| `missing_tables` | | what a semantic model's table the database does not hold does: `refuse` (the default) stops the server, naming it; `leave_out` takes that dataset (and its relationships) out of the model, named by `--check` and in the server's log — for a model made from a project ahead of the database (a dbt model not built yet) |
 
 An engine adds keys of its own — a file's `path`, a server's address, the variables holding secrets: see
 [engines](engines.md).

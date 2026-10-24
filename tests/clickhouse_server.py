@@ -69,11 +69,19 @@ SHOP = [
     "DROP USER IF EXISTS swm_small_answers",
     "CREATE USER swm_small_answers IDENTIFIED BY 'swm_small_answers' SETTINGS max_result_bytes = 1, max_block_size = 2",
     "GRANT SELECT ON swm_marts.* TO swm_small_answers",
-    # Read-only users the usual ways: `readonly = 1` may change no setting, so it cannot take the server's limits;
-    # `readonly = 2` may, and still writes nothing.
+    # Read-only users the usual ways: `readonly = 1` may change no setting, so its queries keep its profile's limits
+    # and the server bounds them itself; `readonly = 2` takes the server's limits, and still writes nothing.
     "DROP USER IF EXISTS swm_readonly_one",
     "CREATE USER swm_readonly_one IDENTIFIED BY 'swm_readonly_one' SETTINGS readonly = 1",
     "GRANT SELECT ON swm_marts.* TO swm_readonly_one",
+    "GRANT SELECT ON system.processes TO swm_readonly_one",  # so it may stop its own queries (KILL QUERY)
+    "DROP USER IF EXISTS swm_readonly_unstoppable",
+    "CREATE USER swm_readonly_unstoppable IDENTIFIED BY 'swm_readonly_unstoppable' SETTINGS readonly = 1",
+    "GRANT SELECT ON swm_marts.* TO swm_readonly_unstoppable",
+    "DROP USER IF EXISTS swm_readonly_cutting",
+    "CREATE USER swm_readonly_cutting IDENTIFIED BY 'swm_readonly_cutting' "
+    "SETTINGS readonly = 1, max_rows_to_read = 2, read_overflow_mode = 'break'",
+    "GRANT SELECT ON swm_marts.* TO swm_readonly_cutting",
     "DROP USER IF EXISTS swm_readonly_two",
     "CREATE USER swm_readonly_two IDENTIFIED BY 'swm_readonly_two' SETTINGS readonly = 2",
     "GRANT SELECT ON swm_marts.* TO swm_readonly_two",

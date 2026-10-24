@@ -11,7 +11,7 @@ from mcp import Client
 
 from semantic_warehouse_mcp import answers, semantic, vocabulary
 from semantic_warehouse_mcp.config import ConfigError, load
-from semantic_warehouse_mcp.server import build_server
+from semantic_warehouse_mcp.server import build_server, main
 
 pytestmark = pytest.mark.anyio
 
@@ -433,6 +433,26 @@ def test_a_dataset_source_is_held_to_its_connection(shop, source, expected):
         'connections[0] "shop" → semantic_models → shop.yaml → datasets[1] "customers" → source: '
     ), found
     assert expected in found[0], found
+
+
+async def test_a_table_the_database_does_not_hold_may_be_left_out(shop, capsys):
+    """A model made from a project ahead of its database: the dataset is taken out, with its relationships, and said."""
+    leaving = CONFIG.replace(
+        "semantic_models: [shop.yaml]", "semantic_models: [shop.yaml]\n    missing_tables: leave_out"
+    )
+    config = shop(("source: marts.customers", "source: marts.not_built_yet"), config=leaving)
+    connection = config.connections["shop"]
+    assert connection.left_out == ("shop.customers (marts.not_built_yet)",)
+    model = connection.models[0].document
+    assert [d["name"] for d in model["datasets"]] == ["orders", "events"] and model.get("relationships") == []
+    answer, _ = await call(config, "list_datasets")
+    assert [d["dataset"] for d in answer["datasets"]] == ["orders", "events"]
+    main(["--config", config.source, "--check"])
+    assert "left out, the database holding no table of theirs: shop.customers (marts.not_built_yet)" in (
+        capsys.readouterr().out
+    )
+    still = shop(("source: marts.customers", "source: secret.salaries"), config=leaving, problems=True)
+    assert len(still) == 1 and "is not readable here" in still[0]  # a table not readable is refused all the same
 
 
 async def test_a_query_source_the_guard_passes(shop):

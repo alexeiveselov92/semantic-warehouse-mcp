@@ -211,6 +211,8 @@ Any error of the importer's own exits 2, so `--check`'s 1 always means "not curr
 
 ## 2026-10-24 · A ClickHouse user with `readonly = 1` is refused at start, naming `readonly = 2`
 
+**Superseded the same day** by "A ClickHouse user with `readonly = 1` is served within its profile" below.
+
 The agent's recommendation (variant A of two), built when the author said to go on; variant B stays open. Found on a
 real installation: the read-only user agents were given had `readonly = 1` and no limit in its profile
 (`max_execution_time` 0). Such a user may change no setting — measured on ClickHouse 26.3: a limit or an overflow mode
@@ -239,3 +241,30 @@ server on loopback may go without; **`/health`** needs no token and reaches no d
 **stateless, JSON answers** — replicas behind one address, nothing held per session; the **image** runs as a user
 without rights on a read-only root filesystem, and is published only for a release tag, never as `latest`. Per-person
 identity is the gateway's, not the server's (Later).
+
+## 2026-10-24 · A ClickHouse user with `readonly = 1` is served within its profile (variant B)
+
+**The author**: use the read-only user employees already have — `readonly = 1`, the usual read-only grant. So the
+adapter learns, at start and with no setting sent, the user's own settings (`system.settings`): for a `readonly = 1`
+user it sends no limit (only the answer's format, the query's id, parameters — what such a user may send, measured on
+22.11 and 26.3), and bounds the query itself: the answer read as it comes and no further than one row past what is
+shown, the query stopped by its id (`KILL QUERY`, the user's own) once enough is read or past its time. What it cannot
+override, it checks: a profile with a limit in a mode that cuts silently is refused, naming it; a user that may not
+stop its queries and whose profile sets no time limit is refused (a query past its time would run on). An error met
+after rows were sent — a line of text (22.x), a row of one message (25.x), an `__exception__` block (26.x) — is an
+error, never a short answer. The principle holds: no answer cut without saying so; time bounded, by the server.
+
+## 2026-10-24 · ClickHouse before 24.3 served through its analyzer's resolved tree
+
+The author gave a warehouse on 22.11 to serve. Measured: `EXPLAIN QUERY TREE run_passes = 1` makes 22.11's
+experimental analyzer resolve the tree — 26 of 27 typical analyst queries (CTEs, joins, `ARRAY JOIN`, windows,
+`GLOBAL IN`, `x IN db.table` with its table named), the one refusal a query that is an error anyway. So the adapter
+always asks for the resolved tree (the default from 24.3) and keeps refusing one it cannot resolve; settings a server
+does not know are not sent. `EXPLAIN AST`, read by the adapter, is not needed.
+
+## 2026-10-24 · A model's table the database does not hold may be left out (`missing_tables: leave_out`)
+
+Found on a real warehouse: a model imported from a dbt project's main named two models not built yet, and the server,
+holding every source to its connection, would not start. A connection may now say `missing_tables: leave_out`: such a
+dataset is taken out of the model with its relationships, named by `--check` and in the server's log; `refuse` stays
+the default. A source that is not readable is refused either way — leaving out is only for what is not there.

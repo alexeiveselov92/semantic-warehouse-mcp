@@ -7,7 +7,7 @@ import pathlib
 import re
 from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -60,6 +60,7 @@ class ConnectionEntry(BaseModel):
     instructions: str | None = None
     context: list[str] = []
     semantic_models: list[str] = []
+    missing_tables: Literal["refuse", "leave_out"] = "refuse"
 
 
 class ServerLimits(_Strict):
@@ -87,6 +88,8 @@ class Connection:
     instructions: str | None = None
     context: tuple[pathlib.Path, ...] = ()
     models: tuple[Model, ...] = ()
+    # With `missing_tables: leave_out`: each dataset left out because the database holds no table of its source.
+    left_out: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -176,7 +179,10 @@ def parse(data: Any, *, source: str, base_dir: pathlib.Path, reach: bool = True)
                 problems.append(f"{where}: {error}")
                 continue
         rules = _rules(entry, adapter)  # after `check`, which may learn the connection's own catalog
-        binding_problems = _bind(models, rules, adapter if reach else None) + _own_metadata(models, vocabularies)
+        missing: list[tuple[Model, str, str]] = []
+        leave_out = entry.missing_tables == "leave_out"
+        binding_problems = _bind(models, rules, adapter if reach else None, missing if leave_out else None)
+        binding_problems += _own_metadata(models, vocabularies)
         if binding_problems:
             problems.extend(f"{where} → semantic_models → {problem}" for problem in binding_problems)
             continue
@@ -192,6 +198,7 @@ def parse(data: Any, *, source: str, base_dir: pathlib.Path, reach: bool = True)
             instructions=entry.instructions,
             context=context_paths,
             models=tuple(models),
+            left_out=_left_out(missing),
         )
     server_context, server_context_problems = _context(parsed.context, base_dir)
     problems.extend(server_context_problems)
@@ -290,9 +297,11 @@ def _files(entries: list[str], base_dir: pathlib.Path, key: str, problems: list[
     return found
 
 
-def _bind(models: list[Model], rules: guard.Rules, adapter: Adapter | None) -> list[str]:
+def _bind(
+    models: list[Model], rules: guard.Rules, adapter: Adapter | None, missing: list[tuple[Model, str, str]] | None
+) -> list[str]:
     """Each dataset's source on its connection: a table it may read (and, with `adapter`, one that exists), or a query
-    the guard passes."""
+    the guard passes. With `missing`, a table the database does not hold is gathered there instead of refused."""
     problems = []
     stored: set[tuple[str, str]] | None = None
     for model in models:
@@ -322,9 +331,26 @@ def _bind(models: list[Model], rules: guard.Rules, adapter: Adapter | None) -> l
                     }
                 except AdapterError as error:
                     return [f"the tables of the connection cannot be listed: {error}"]
-            if (schema, table) not in stored:
+            if (schema, table) in stored:
+                continue
+            if missing is None:
                 problems.append(f"{where}: there is no table or view {schema}.{table} on the connection")
+            else:
+                missing.append((model, dataset["name"], f"{schema}.{table}"))
     return problems
+
+
+def _left_out(missing: list[tuple[Model, str, str]]) -> tuple[str, ...]:
+    """Each dataset whose table the database does not hold taken out of its model, with the relationships to or from
+    it — so no answer names a table that is not there. Its name and table, for the check to say."""
+    for model in {id(model): model for model, _, _ in missing}.values():
+        gone = {name for owner, name, _ in missing if owner is model}
+        document = model.document
+        document["datasets"] = [dataset for dataset in document["datasets"] if dataset["name"] not in gone]
+        if "relationships" in document:
+            kept = [r for r in document["relationships"] if r["from"] not in gone and r["to"] not in gone]
+            document["relationships"] = kept
+    return tuple(f"{model.name}.{name} ({table})" for model, name, table in missing)
 
 
 def _own_metadata(models: list[Model], vocabularies: dict[str, Vocabulary]) -> list[str]:

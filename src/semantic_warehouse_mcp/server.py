@@ -561,9 +561,15 @@ def main(argv: list[str] | None = None) -> None:
                 metrics = len(model.document.get("metrics", [])) + sum(len(d.get("metrics", [])) for d in datasets)
                 counts = f"{len(datasets)} datasets, {metrics} metrics"
                 print(f"    semantic model {model.name} (Ossie {model.version}): {counts}")
+            if connection.left_out:
+                print(f"    left out, the database holding no table of theirs: {', '.join(connection.left_out)}")
         for vendor, declared in config.vocabularies.items():
             print(f"  - vocabulary {vendor} ({declared.file}): {len(declared.keys)} keys")
         return
+    for connection in config.connections.values():  # said where the server's log is read
+        if connection.left_out:
+            gone = ", ".join(connection.left_out)
+            print(f"semantic-warehouse-mcp: {connection.name}: left out, no table of theirs: {gone}", file=sys.stderr)
     if not args.http:
         build_server(config).run("stdio")
         return

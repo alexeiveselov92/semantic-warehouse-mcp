@@ -7,7 +7,9 @@ import json
 import os
 import pathlib
 import re
-from typing import Annotated
+import time
+import uuid
+from typing import Annotated, Any
 
 import httpx
 from pydantic import Field
@@ -36,28 +38,61 @@ OVERFLOW_MODES = {
         "timeout_overflow_mode_leaf",
     )
 }
+# Each limit a profile may set, with the mode that says what happens past it.
+LIMITS = (
+    ("max_rows_to_read", "read_overflow_mode"),
+    ("max_bytes_to_read", "read_overflow_mode"),
+    ("max_rows_to_read_leaf", "read_overflow_mode_leaf"),
+    ("max_bytes_to_read_leaf", "read_overflow_mode_leaf"),
+    ("max_rows_to_group_by", "group_by_overflow_mode"),
+    ("max_rows_to_sort", "sort_overflow_mode"),
+    ("max_bytes_to_sort", "sort_overflow_mode"),
+    ("max_rows_in_distinct", "distinct_overflow_mode"),
+    ("max_bytes_in_distinct", "distinct_overflow_mode"),
+    ("max_rows_in_set", "set_overflow_mode"),
+    ("max_bytes_in_set", "set_overflow_mode"),
+    ("max_rows_in_join", "join_overflow_mode"),
+    ("max_bytes_in_join", "join_overflow_mode"),
+    ("max_rows_to_transfer", "transfer_overflow_mode"),
+    ("max_bytes_to_transfer", "transfer_overflow_mode"),
+    ("max_result_rows", "result_overflow_mode"),
+    ("max_result_bytes", "result_overflow_mode"),
+    ("max_execution_time", "timeout_overflow_mode"),
+    ("max_execution_time_leaf", "timeout_overflow_mode_leaf"),
+)
+PROFILE_SETTINGS = sorted(
+    {"readonly", "cancel_http_readonly_queries_on_client_close", *(n for pair in LIMITS for n in pair)}
+)
+# What a `readonly = 1` user may still send (measured on 22.11 and 26.3): the answer's format, the query's id, its
+# parameters — no limit, no overflow mode.
+FIXED_PARAMS = (
+    "query",
+    "database",
+    "default_format",
+    "output_format_json_quote_decimals",
+    "wait_end_of_query",
+    "query_id",
+)
 
 FORMAT = "JSONCompactEachRowWithNamesAndTypes"
 TIMEOUT_CODE = "159"  # TIMEOUT_EXCEEDED
-READONLY_CODE = "164"  # READONLY: here, a setting the user may not change
-# A user with `readonly = 1` may change no setting, so none of the limits above reaches its queries: refused, with
-# the fix. `readonly = 2` lets it take them and still write nothing — its grants, and every request a GET, hold that.
-READONLY_ONE = (
-    "the user has readonly = 1, which lets it change no setting: the server cannot give its queries their limits "
-    "(time, and the overflow modes that refuse rather than cut). Give the user readonly = 2 — it still cannot write: "
-    "every request is a GET, which ClickHouse runs read-only, and its grants hold the tables it may read"
-)
+ERROR_IN_BODY = re.compile(r"Code: \d+\. DB::Exception: .*")
+# An error written as a row, as 25.x writes one met after rows were sent: `["Code: 395. DB::Exception: … (version …)"]`.
+ERROR_AS_VALUE = re.compile(r"Code: \d+\. DB::Exception: .* \(version .*\)", re.DOTALL)
+BIG_INTEGER = re.compile(r"^U?Int(64|128|256)$")
 
 # Tables ClickHouse reads by itself: `system.one` is what a SELECT without FROM reads.
 IMPLICIT_TABLES = {("system", "one")}
 
 TABLE_IN_TREE = re.compile(r"^\s*TABLE id: \d+, (?:alias: [^,]+, )?table_name: (\S+)\s*$", re.MULTILINE)
-# A name the analyzer has not resolved into a table, a column or a function. Before 24.3 (the analyzer off), ClickHouse
-# explains a query tree without resolving it: no table is named in it — so a tree holding one is read as no reading.
+# A name the analyzer has not resolved into a table, a column or a function: a tree holding one names no table for
+# it, so it is read as no reading at all. `run_passes = 1` asks for the resolved tree — the default from 24.3, and what
+# makes the analyzer of older servers (22.x, 23.x) resolve it.
 UNRESOLVED_IN_TREE = re.compile(r"^\s*IDENTIFIER id: \d+", re.MULTILINE)
+EXPLAIN = "EXPLAIN QUERY TREE run_passes = 1"
 UNRESOLVED = (
-    "ClickHouse explains queries without resolving their names (its analyzer, on from 24.3): it cannot say which "
-    "tables a query reads, so the server cannot check them — 24.3 or newer is needed"
+    "ClickHouse explained the query without resolving its names: it cannot say which tables the query reads, so the "
+    "server cannot check them"
 )
 
 
@@ -79,6 +114,11 @@ class ClickHouseAdapter(Adapter):
     def __init__(self, settings: ClickHouseSettings, base_dir: pathlib.Path) -> None:
         super().__init__(settings, base_dir)
         self.url = settings.url.rstrip("/") + "/"
+        # Learnt by `check()` from the user's own settings. A `readonly = 1` user may change none: its queries keep
+        # its profile's limits (checked never to cut silently), and the server bounds them itself — reading at most
+        # one row more than it shows, and stopping the query (`KILL QUERY`, its own) past its time.
+        self.fixed_limits = False
+        self.known: set[str] = set(PROFILE_SETTINGS)
 
     @property
     def default_schema(self) -> str:
@@ -98,52 +138,105 @@ class ClickHouseAdapter(Adapter):
             headers[header] = value
         return headers
 
-    def _get(self, query: str, seconds: float, settings: dict[str, str | int] | None = None) -> str:
-        """One query, as a GET (read-only by ClickHouse's own rule), within `seconds`; the body as text."""
-        params: dict[str, str | int] = {
-            "query": query,
-            "database": self.settings.database,
+    def _params(self, query: str, seconds: float, settings: dict[str, Any] | None) -> dict[str, Any]:
+        params: dict[str, Any] = {"query": query, "database": self.settings.database, "query_id": str(uuid.uuid4())}
+        if self.fixed_limits:
+            given = {k: v for k, v in (settings or {}).items() if k in FIXED_PARAMS or k.startswith("param_")}
+            return {**params, "wait_end_of_query": 1, **given}
+        limits = {
             "max_execution_time": max(1, round(seconds)),
             **OVERFLOW_MODES,
-            "wait_end_of_query": 1,  # an error reaches us as an error, not after rows already sent
             "cancel_http_readonly_queries_on_client_close": 1,
-            **(settings or {}),
         }
+        known = {k: v for k, v in limits.items() if k in self.known}  # an older server lacks some: they cannot apply
+        return {**params, **known, "wait_end_of_query": 1, **(settings or {})}
+
+    def _get(self, query: str, seconds: float, settings: dict[str, Any] | None = None) -> str:
+        """One query, as a GET (read-only by ClickHouse's own rule), within `seconds`; the body as text."""
+        params = self._params(query, seconds, settings)
         try:
             response = httpx.get(self.url, params=params, headers=self._headers(), timeout=seconds + 10)
         except httpx.TimeoutException as error:
+            self._stop(params["query_id"])
             raise TimedOut(f"stopped after {seconds:g} s") from error
         except httpx.HTTPError as error:
             raise AdapterError(f"cannot reach {self.url}: {type(error).__name__}") from error
         if response.status_code != 200:
-            code = response.headers.get("X-ClickHouse-Exception-Code", "")
-            message = re.sub(r"\s*\(version [^)]*\)\s*$", "", response.text.strip())
-            if code == TIMEOUT_CODE:
-                raise TimedOut(f"stopped after {seconds:g} s")
-            if code == READONLY_CODE and "setting in readonly mode" in message:
-                raise AdapterError(READONLY_ONE)
-            raise AdapterError(message)
+            raise self._error(response.headers.get("X-ClickHouse-Exception-Code", ""), response.text, seconds)
         return response.text
 
+    def _error(self, code: str, text: str, seconds: float) -> AdapterError:
+        if code == TIMEOUT_CODE:
+            return TimedOut(f"stopped after {seconds:g} s")
+        found = ERROR_IN_BODY.search(text)
+        message = found.group(0) if found else text.strip()
+        return AdapterError(re.sub(r"\s*\(version [^)]*\)\s*$", "", message.strip()))
+
+    def _may_stop(self) -> bool:
+        """Whether the user may stop its own queries: asked by stopping one that does not exist."""
+        params = {"query": f"KILL QUERY WHERE query_id = '{uuid.uuid4()}' ASYNC", "database": self.settings.database}
+        try:
+            return httpx.get(self.url, params=params, headers=self._headers(), timeout=10).status_code == 200
+        except httpx.HTTPError:
+            return False
+
+    def _stop(self, query_id: str) -> None:
+        """Stop a query the server no longer waits for: its own, by its id — a user with `readonly = 1` may."""
+        params = {"query": f"KILL QUERY WHERE query_id = '{query_id}' ASYNC", "database": self.settings.database}
+        try:
+            httpx.get(self.url, params=params, headers=self._headers(), timeout=10)
+        except httpx.HTTPError:
+            pass
+
     def check(self) -> None:
+        own = self._own_settings()
+        self.known = set(own)
+        self.fixed_limits = own.get("readonly") == "1"
+        if self.fixed_limits:
+            cutting = [
+                f"{limit} = {own[limit]} with {mode} = {own[mode]!r}"
+                for limit, mode in LIMITS
+                if own.get(limit, "0") not in ("0", "0.") and own.get(mode, "throw") != "throw"
+            ]
+            if cutting:
+                raise AdapterError(
+                    "the user has readonly = 1, so its queries keep its profile's limits — and the profile cuts "
+                    f"silently past some: {'; '.join(cutting)}. Set those modes to 'throw' in the profile, or give the "
+                    "user readonly = 2, which lets the server set its own"
+                )
+            if own.get("max_execution_time", "0") in ("0", "0.") and not self._may_stop():
+                raise AdapterError(
+                    "the user has readonly = 1, its profile sets no time limit, and it may not stop its own queries "
+                    "(KILL QUERY needs SELECT on system.processes): a query past its time would run on. Grant it "
+                    "that, set max_execution_time in its profile, or give the user readonly = 2"
+                )
+        else:
+            self._get("SELECT 1", seconds=10)  # its limits taken (a profile's constraints may refuse one)
         try:
-            self._get("SELECT 1", seconds=10)
+            tree = self._get(f"{EXPLAIN} SELECT 1", seconds=10, settings={"default_format": "TSVRaw"})
         except AdapterError as error:
-            if "UNKNOWN_SETTING" not in str(error):
-                raise
-            # A server older than the limits the server sends with every query (before 24.3, some are unknown).
-            raise AdapterError(f"ClickHouse does not know a setting the server sends with every query (24.3 or newer "
-                               f"is needed): {error}") from error  # fmt: skip
-        try:
-            tree = self._get("EXPLAIN QUERY TREE SELECT 1", seconds=10, settings={"default_format": "TSVRaw"})
-        except AdapterError as error:
-            raise AdapterError(f"ClickHouse cannot explain a query tree (24.3 or newer is needed): {error}") from error
+            raise AdapterError(f"ClickHouse cannot explain a query tree: {error}") from error
         if "system.one" not in TABLE_IN_TREE.findall(tree) or UNRESOLVED_IN_TREE.search(tree):
             raise AdapterError(UNRESOLVED)  # a resolved tree names the table a SELECT without FROM reads
 
+    def _own_settings(self) -> dict[str, str]:
+        """The user's own settings that bear on its queries, asked with none sent: any user, any version answers."""
+        names = ", ".join(f"'{name}'" for name in PROFILE_SETTINGS)
+        params = {
+            "query": f"SELECT name, value FROM system.settings WHERE name IN ({names}) FORMAT JSONCompactEachRow",
+            "database": self.settings.database,
+        }
+        try:
+            response = httpx.get(self.url, params=params, headers=self._headers(), timeout=20)
+        except httpx.HTTPError as error:
+            raise AdapterError(f"cannot reach {self.url}: {type(error).__name__}") from error
+        if response.status_code != 200:
+            raise self._error(response.headers.get("X-ClickHouse-Exception-Code", ""), response.text, 20)
+        return {row[0]: row[1] for row in map(json.loads, response.text.splitlines()) if row}
+
     def engine_reading(self, sql: str, seconds: float) -> EngineReading:
         try:
-            tree = self._get(f"EXPLAIN QUERY TREE {sql}", seconds=seconds, settings={"default_format": "TSVRaw"})
+            tree = self._get(f"{EXPLAIN} {sql}", seconds=seconds, settings={"default_format": "TSVRaw"})
         except TimedOut:
             raise
         except AdapterError as error:
@@ -161,25 +254,66 @@ class ClickHouseAdapter(Adapter):
         return EngineReading(tables=tuple(tables))
 
     def run(self, sql: str, max_rows: int, seconds: float) -> Result:
-        body = self._get(
-            sql,
-            seconds=seconds,
-            settings={
-                "default_format": FORMAT,
-                "max_result_rows": max_rows + 1,
-                "result_overflow_mode": "break",
-                "max_result_bytes": 0,
-                "output_format_json_quote_64bit_integers": 0,
-                "output_format_json_quote_decimals": 0,
-            },
-        )
-        lines = body.splitlines()
+        if self.fixed_limits:
+            lines, more = self._stream(sql, max_rows, seconds)
+        else:
+            body = self._get(
+                sql,
+                seconds=seconds,
+                settings={
+                    "default_format": FORMAT,
+                    "max_result_rows": max_rows + 1,
+                    "result_overflow_mode": "break",
+                    "max_result_bytes": 0,
+                    "output_format_json_quote_64bit_integers": 0,
+                    "output_format_json_quote_decimals": 0,
+                },
+            )
+            lines, more = body.splitlines()[: max_rows + 3], False
         if len(lines) < 2:
             raise AdapterError("ClickHouse answered without column names and types")
         names, types = json.loads(lines[0]), json.loads(lines[1])
-        rows = [tuple(json.loads(line, parse_float=decimal.Decimal)) for line in lines[2 : max_rows + 3]]
+        rows = [
+            tuple(_typed(v, t) for v, t in zip(json.loads(line, parse_float=decimal.Decimal), types, strict=True))
+            for line in lines[2:]
+        ]
         columns = [Column(name=name, type=type_) for name, type_ in zip(names, types, strict=True)]
-        return Result(columns=columns, rows=rows[:max_rows], more_rows=len(rows) > max_rows)
+        return Result(columns=columns, rows=rows[:max_rows], more_rows=more or len(rows) > max_rows)
+
+    def _stream(self, sql: str, max_rows: int, seconds: float) -> tuple[list[str], bool]:
+        """The answer's first lines as they come — its names, types and one row more than shown — then the query
+        stopped, as it is past `seconds`: the server's own bounds, where the user's profile allows it none."""
+        params = self._params(sql, seconds, {"default_format": FORMAT, "output_format_json_quote_decimals": 0})
+        params["wait_end_of_query"] = 0  # rows as they come, so the rest is never read
+        deadline = time.monotonic() + seconds
+        lines: list[str] = []
+        more = False
+        try:
+            with httpx.stream("GET", self.url, params=params, headers=self._headers(), timeout=seconds) as response:
+                if response.status_code != 200:
+                    raise self._error(response.headers.get("X-ClickHouse-Exception-Code", ""), response.read().decode(
+                        errors="replace"), seconds)  # fmt: skip
+                streamed = response.iter_lines()
+                for line in streamed:
+                    if time.monotonic() > deadline:
+                        raise httpx.ReadTimeout("past its time")
+                    if not line.strip():
+                        continue
+                    if _not_a_row(line, lines):  # an error, met after rows were already sent
+                        rest = "\n".join([line, *(text for _, text in zip(range(20), streamed, strict=False))])
+                        raise self._error("", rest, seconds)
+                    lines.append(line)
+                    if len(lines) > max_rows + 2:
+                        more = True
+                        break
+        except httpx.TimeoutException as error:
+            self._stop(params["query_id"])
+            raise TimedOut(f"stopped after {seconds:g} s") from error
+        except httpx.HTTPError as error:
+            raise AdapterError(f"cannot reach {self.url}: {type(error).__name__}") from error
+        if more:
+            self._stop(params["query_id"])  # the rest is never read: the query need not go on
+        return lines, more
 
     def _rows(self, query: str, **params: str) -> list[list]:
         settings = {"default_format": "JSONCompactEachRow", **{f"param_{k}": v for k, v in params.items()}}
@@ -212,3 +346,34 @@ class ClickHouseAdapter(Adapter):
             Column(name=row[0], type=row[1], nullable=row[1].startswith("Nullable("), comment=row[2] or None)
             for row in rows
         ]
+
+
+def _not_a_row(line: str, before: list[str]) -> bool:
+    """Whether a streamed line is an error rather than the names, the types or a row: each ClickHouse writes it its own
+    way — a line of text (22.x), a row of one error message (25.x), an `__exception__` block (26.x)."""
+    if not line.lstrip().startswith("["):
+        return True
+    if len(before) < 2:
+        return False
+    try:
+        values = json.loads(line)
+    except ValueError:
+        return True
+    width = len(json.loads(before[0]))
+    if len(values) != width:
+        return True
+    return width == 1 and isinstance(values[0], str) and ERROR_AS_VALUE.fullmatch(values[0]) is not None
+
+
+def _typed(value: Any, type_: str) -> Any:
+    """A value as its type says — a 64-bit integer a server quoted as text (ClickHouse before 24, by default) read back
+    as the integer it is."""
+    inner = type_
+    for wrapper in ("Nullable(", "LowCardinality("):
+        while inner.startswith(wrapper) and inner.endswith(")"):
+            inner = inner[len(wrapper) : -1]
+    if isinstance(value, str) and BIG_INTEGER.match(inner):
+        return int(value)
+    if isinstance(value, list) and inner.startswith("Array(") and inner.endswith(")"):
+        return [_typed(item, inner[len("Array(") : -1]) for item in value]
+    return value

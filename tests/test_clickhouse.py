@@ -11,7 +11,7 @@ from conftest import write_config
 from mcp import Client
 
 from semantic_warehouse_mcp.adapters import AdapterError, TimedOut
-from semantic_warehouse_mcp.adapters.clickhouse import READONLY_ONE, ClickHouseAdapter, ClickHouseSettings
+from semantic_warehouse_mcp.adapters.clickhouse import ClickHouseAdapter, ClickHouseSettings
 from semantic_warehouse_mcp.config import ConfigError, load
 from semantic_warehouse_mcp.server import build_server
 
@@ -75,11 +75,42 @@ def test_a_profile_that_cuts_silently_cannot_cut_through_the_server(adapter, as_
         adapter.run("SELECT sum(amount), count() FROM swm_marts.orders WHERE order_id != ''", max_rows=10, seconds=10)
 
 
-def test_a_user_with_readonly_one_is_refused_naming_the_fix(adapter, as_user):
+def test_a_user_with_readonly_one_is_bounded_by_the_server_itself(adapter, as_user, clickhouse_url):  # noqa: F811
+    """It may change no setting: its queries keep its profile's limits, and the server shows one row more than it
+    reads no further than, and stops a query past its time — the query itself, not only the waiting."""
     as_user("swm_readonly_one")
+    adapter.check()
+    assert adapter.fixed_limits is True
+    cut = adapter.run("SELECT number FROM numbers(100000000000)", max_rows=3, seconds=10)
+    assert cut.rows == [(0,), (1,), (2,)] and cut.more_rows is True
+    whole = adapter.run("SELECT sum(amount), count() FROM swm_marts.orders", max_rows=3, seconds=10)
+    assert whole.rows == [(decimal.Decimal("160.89"), 6)] and whole.more_rows is False
+    start = time.monotonic()
+    with pytest.raises(TimedOut):
+        adapter.run("SELECT count() FROM numbers(1000000000000)", max_rows=1, seconds=1)
+    assert time.monotonic() - start < 5
+    time.sleep(1)
+    running = "SELECT count() FROM system.processes WHERE user = 'swm_readonly_one' AND query LIKE '%numbers(%'"
+    assert admin(clickhouse_url, running).strip() == "0"  # stopped, not left running
+    with pytest.raises(AdapterError, match="readonly"):
+        adapter.run("INSERT INTO swm_marts.orders (order_id) VALUES ('x')", max_rows=3, seconds=10)
+    with pytest.raises(AdapterError, match="boom"):  # an error after rows were sent is an error, not a short answer
+        adapter.run("SELECT number, throwIf(number = 200000, 'boom') FROM numbers(300000)", max_rows=500000, seconds=10)
+    assert {table.name for table in adapter.tables()} >= {"orders", "daily"}
+    assert admin(clickhouse_url, "SELECT count() FROM swm_marts.orders").strip() == "6"
+
+
+def test_a_readonly_one_user_that_could_not_stop_a_query_is_refused(adapter, as_user):
+    as_user("swm_readonly_unstoppable")  # no time limit in its profile, and no right to stop its own queries
+    with pytest.raises(AdapterError, match="a query past its time would run on"):
+        adapter.check()
+
+
+def test_a_readonly_one_profile_that_cuts_silently_is_refused_naming_it(adapter, as_user):
+    as_user("swm_readonly_cutting")
     with pytest.raises(AdapterError) as refused:
         adapter.check()
-    assert str(refused.value) == READONLY_ONE
+    assert "max_rows_to_read = 2 with read_overflow_mode = 'break'" in str(refused.value)
     assert "readonly = 2" in str(refused.value)
 
 

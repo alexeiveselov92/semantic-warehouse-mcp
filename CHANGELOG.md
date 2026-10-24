@@ -4,6 +4,8 @@ One line per change, newest on top: `YYYY-MM-DD — what was done`.
 
 ---
 
+2026-10-24 — ClickHouse `readonly = 1` users served within their profile (the author: use the read-only user employees have): no limit sent, the answer read no further than one row past what is shown, the query stopped by its id once enough is read or past its time; a profile that cuts silently, or a user that could not stop a query and has no time limit, refused at start; errors met mid-answer in each version's form refused
+2026-10-24 — ClickHouse 22.11 served: the resolved tree asked for (`EXPLAIN QUERY TREE run_passes = 1`), settings a server does not know not sent, 64-bit integers it quotes read back; `missing_tables: leave_out` for a model ahead of its database; checked live on two real warehouses with their read-only users
 2026-10-24 — `--check --offline`: the configuration, its models and vocabularies checked without reaching a database or reading a secret, for CI
 2026-10-24 — Streamable HTTP for a server a team shares: `--http`, a token every request carries (required off loopback), `/health` without a token or a database, stateless JSON answers; the container image (non-root, read-only root filesystem) built on every change and published to GHCR for a release tag; `docs/reference/running.md`; real Claude Code answered through the image over HTTP, its numbers checked
 2026-10-24 — ClickHouse before 24.3 refused at start by checking that its query tree is resolved, and a query whose tree holds an unresolved name refused: such servers (22.11, 23.8 measured) explain a query naming no table, which would have passed for a reading that found none — until now they stopped only because they did not know a setting
