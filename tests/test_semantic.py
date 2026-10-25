@@ -1,6 +1,7 @@
 """Semantic models in Apache Ossie: checked against their version's schema and bound to their connection at start,
 served as written by list_datasets, describe_dataset, list_metrics and describe_metric."""
 
+import dataclasses
 import json
 import pathlib
 import textwrap
@@ -11,7 +12,7 @@ from mcp import Client
 
 from semantic_warehouse_mcp import answers, semantic, vocabulary
 from semantic_warehouse_mcp.config import ConfigError, load
-from semantic_warehouse_mcp.server import build_server, main
+from semantic_warehouse_mcp.server import build_server, main, start_log
 
 pytestmark = pytest.mark.anyio
 
@@ -502,6 +503,14 @@ async def test_a_table_the_database_does_not_hold_may_be_left_out(shop, capsys):
     )
     still = shop(("source: marts.customers", "source: secret.salaries"), config=leaving, problems=True)
     assert len(still) == 1 and "is not readable here" in still[0]  # a table not readable is refused all the same
+    assert start_log(config) == [
+        "semantic-warehouse-mcp: shop: 1 datasets left out, no table of theirs: shop.customers (marts.not_built_yet) "
+        "(`--check` names every one)"
+    ]
+    many = dataclasses.replace(connection, left_out=tuple(f"shop.d{n} (marts.d{n})" for n in range(90)))
+    logged = start_log(dataclasses.replace(config, connections={"shop": many}))
+    assert logged[0].startswith("semantic-warehouse-mcp: shop: 90 datasets left out, no table of theirs: shop.d0 ")
+    assert "shop.d4 (marts.d4), …" in logged[0] and "shop.d5 " not in logged[0]  # the log is no list of ninety
 
 
 async def test_a_query_source_the_guard_passes(shop):

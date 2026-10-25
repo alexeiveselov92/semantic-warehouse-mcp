@@ -4,12 +4,12 @@
 
 **Updated:** 25 October 2026.
 
-**Prepared: 0.6.0, pre-alpha** — committed, not yet tagged (the author decides the push): what a company's earlier
-data agent had and the server lacked — what a model reads and its SQL from dbt, lists filtered by the team's own
-metadata with `list_metadata` as their menu, `narrowed_by` for an event log — and the guard hardened by a second
-reader (a large table read alone in its SELECT; on ClickHouse an alias's name is no bound). **Released: 0.5.0** on PyPI
-and GHCR. **The site is live at https://swm.pipelab.dev**, redeployed on every push that changes `docs/` or `website/`.
-Milestones 0–4 done; **current: milestone 5** — PostgreSQL and MySQL done, BigQuery and Snowflake put off by the
+**Released: 0.6.0** (PyPI, GHCR, the site) — what a company's earlier data agent had and the server lacked: what a
+model reads and its SQL from dbt, lists filtered by the team's own metadata with `list_metadata` as their menu,
+`narrowed_by` for an event log; the guard hardened by a second reader. **Prepared: 0.6.1** — ClickHouse before 24.3:
+a `GROUP BY` over an `ALIAS` column answered, the tree as parsed read by the rules of the interpreter that runs the
+query; the engine's reading hardened. **The site is live at https://swm.pipelab.dev.** Milestones 0–4 done; **current:
+milestone 5** — PostgreSQL, MySQL and the ClickHouse-before-24.3 item done, BigQuery and Snowflake put off by the
 author, the self-check at start remains.
 
 ## What exists
@@ -17,66 +17,63 @@ author, the self-check at start remains.
 - **The server**: stdio or `--http` (a token off loopback, `/health`, stateless); `--check`, `--check --offline`.
   14 read-only tools: `about`, `list_connections`, `list_tables`, `describe_table`, `run_query`, `list_context`,
   `get_context`, `list_skills`, `get_skill`, `list_datasets`, `describe_dataset`, `list_metrics`, `describe_metric`,
-  `list_metadata` (new).
-- **Engines** (`adapters/`): ClickHouse (HTTP, `readonly = 1` users within their profile, 22.11–26.3), PostgreSQL,
-  MySQL, DuckDB; drivers are extras (`[postgres]`, `[mysql]`, `[duckdb]`, `[all]`).
-- **The guard**: one SELECT over `readable` tables; a large table read alone in its SELECT (else
-  `large_table_joined` — join it as a subquery), bounded by `bound_by`, held to named values of `narrowed_by` (new,
-  `large_table_unnarrowed`); on ClickHouse (`aliases_shadow_columns`, an adapter's flag) a bare name an alias took
-  counts for neither; `x IN (db.table)` refused; read twice — the engine's own reading held to the same rules.
-- **The semantic layer**: Ossie models, vocabularies, the dbt importer — now with `dbt_depends_on` (the tables a model
-  reads, through ephemeral ones) and `dbt_code` (its SQL as written) into the vendor's data; `list_datasets` /
-  `list_metrics` take `metadata: {key: value | [values]}` (the dataset's or a field's — `matched_fields` names them; a
-  search found by fields names them too; a key or value nothing holds named with the likely one); `list_metadata` —
-  every key and value in use, counts, definitions; `describe_dataset` cuts own-metadata texts past 2000 characters
-  before a field. Large models: lists too long name every item (`compact`).
-- **Context and skills** from disk or git repositories; **the site** (`website/`): a landing page of real answers
-  (its `list_datasets` panel now filters by a tag).
+  `list_metadata`.
+- **Engines** (`adapters/`): ClickHouse (HTTP, `readonly = 1` users within their profile, 22.11 and 24.3–26.3; 23.x
+  refused at start unless the analyzer is on), PostgreSQL, MySQL, DuckDB; drivers are extras.
+- **The guard**: one SELECT over `readable` tables; a large table read alone in its SELECT, bounded by `bound_by`,
+  held to named values of `narrowed_by`; on ClickHouse an alias's name is no bound; read twice — the engine's own
+  reading held to the same rules. On ClickHouse where the analyzer does not run queries (`analyzer_runs`, learnt at
+  start): the resolved tree and the tree as parsed (`run_passes = 0`), the latter read as a tree every line of which
+  ClickHouse could print (a quoted name's line break makes lines) and resolved by the interpreter's rules as measured
+  on 22.11 (CTE scope, aliases right of `IN`); the parsed tree alone where the analyzer cannot resolve the query.
+- **The semantic layer**: Ossie models, vocabularies, the dbt importer (`dbt_tags`, `dbt_depends_on`, `dbt_code`),
+  `metadata` filters, `list_metadata`, `describe_dataset` cutting long own-metadata texts before a field.
+- **Context and skills** from disk or git repositories; **the site** (`website/`); the start's log counts the
+  datasets left out and names five.
 
 ## How it was verified
 
-- 739 tests pass, none skipped (real ClickHouse, PostgreSQL 17, MySQL 8.4 in containers; a git server on loopback);
-  ruff clean; the site builds.
-- Measured on two real dbt projects in a scratch copy (nothing of them here): most models' SQL a few thousand
-  characters, the largest some tens of thousands; `describe_dataset` with it, `list_metadata` of a whole model, a filter
-  by a tag and by a layer, lineage downstream of a staging table — each within one answer.
-- The guard refuted by a second reader on ClickHouse 22.11–26.3 and DuckDB: 2 high (joins, aliases), 1 medium (views —
-  documented), 3 low (one fixed, two documented). 23 mutations of the new protections, 23 caught (one survivor at
-  first, closed with a test).
-- Real Claude Code on the made-up shop: found what is built on `raw.events` (metadata filter), the money columns
-  (`matched_fields`), quoted a model's SQL, counted 444 narrowed `cart_abandoned` events — checked by a direct query.
+- 782 tests pass, none skipped (ClickHouse 25.8 and 22.11, PostgreSQL 17, MySQL 8.4 in containers — 22.11 now in CI
+  too); ruff clean; the site builds.
+- The 22.11 reading: 28 mutations of its protections, 27 caught, the survivor a redundant condition (removed). A
+  second reader on 22.11 and 26.3 found no query past both layers; two false refusals (a quoted name turning off
+  aliases right of `IN`; the analyzer taking a CTE inside `IN (SELECT …)` for a table) fixed, held by tests.
+- A real installation (22.11): the `GROUP BY` over an `ALIAS` column answered through the server, equal to the same
+  query grouped by the stored column.
+- The running guide's own-image recipe built on the 0.6.0 image: a good configuration builds, a broken one stops it.
 
 ## Decided (`dev/DECISIONS.md`)
 
-This sitting: what the old data agent had (lineage and SQL into own metadata under the importer's keys; a metadata
-filter and its menu; `narrowed_by`); a large table read alone in its SELECT, and alias names no bound on ClickHouse
-(the second reader's findings) — the agent, at the author's word ("do everything").
+This sitting: what the old data agent had (lineage, SQL, a metadata filter and its menu, `narrowed_by`); a large table
+read alone in its SELECT, alias names no bound on ClickHouse; ClickHouse before 24.3 — the tree as parsed read too, by
+the interpreter's rules — the agent, at the author's word ("do everything").
 
 ## Next step
 
-1. The author: push `main` and tag `v0.6.0` (publishes PyPI and the image; the site redeploys).
-2. **ClickHouse before 24.3: a GROUP BY over an `ALIAS` column is refused** (`engine_parse`): the query runs, but the
-   resolved tree the server asks for (`EXPLAIN QUERY TREE run_passes = 1`) fails with Code 215 `NOT_AN_AGGREGATE` —
-   reproduced on 22.11 in a container; found on a real installation (`countIf(alias = …)` passes; grouping by
-   the stored column works round it). Needs another reading
-   of the tables a query reads on those servers, as strict — with a second reader.
-3. Milestone 5's rest (`dev/PLAN.md`): the self-check at start. Then milestone 6, metrics.
-4. Later, from the second reader: a `narrowed_by` / `bound_by` column the table lacks could be named at start (today
-   every query over it is refused, naming the column).
+1. Tag `v0.6.1` when pushed (the author said push: done with this commit).
+2. Milestone 5's rest (`dev/PLAN.md`): the self-check at start. Then milestone 6, metrics.
+3. From a company's use, for the author to decide (general terms): the dbt importer choosing models by dbt tag or path
+   (not only by table pattern); telling agents a table stopped being refreshed (its last change); who is asking, carried
+   to the database's query log behind a gateway.
+4. Later, from the second readers: a `narrowed_by` / `bound_by` column the table lacks named at start; `dictGet` /
+   `joinGet` and views stay the guard's alone (the engine's readings do not name what is behind them).
 
 ## What the author needs to do
 
-1. Say whether to push and tag 0.6.0.
+1. Decide item 3 of the next step.
 2. For the container tests locally, Docker running.
 
 ## Don't
 
-- Don't write a real company, database, schema, table or semantics anywhere here — the repository is public.
+- Don't write a real company, database, schema, table or semantics anywhere here — the repository is public; numbers
+  measured on a real installation go here in general terms only.
 - Don't name any team's metadata keys in code — they are declared in a vocabulary.
 - Don't put an engine's specifics outside its adapter (an engine's behaviour the guard needs is an adapter's flag);
   don't import a driver anywhere but its adapter, guarded.
 - Don't add a tool without `read_only_hint=True`, `destructive_hint=False`, or without its entry in `docs/reference/tools.md`.
-- Don't add a protection without a test that fails when it is removed; don't count a mutation run whose tests skipped.
+- Don't add a protection without a test that fails when it is removed; don't count a mutation run whose tests skipped
+  or errored (a fixture that cannot set the server up is no catch).
+- Don't trust the analyzer's tree on a ClickHouse whose analyzer does not run queries as the reading of what runs.
 - Don't rephrase a model's descriptions, instructions, documents or skills — serve them as written.
 - Don't serve over HTTP without a token anywhere but loopback; don't let a token reach git's command line.
 - Don't tag a version that is not `pyproject.toml`'s; don't publish `latest` for the server's image.

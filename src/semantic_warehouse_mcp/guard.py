@@ -156,7 +156,7 @@ def check(sql: str, rules: Rules) -> Checked:
             raise Refused(
                 "unsupported",
                 f"{node.sql(dialect)} reads a table the guard cannot check; "
-                "write it as x IN (SELECT <column> FROM <table>)",
+                "write it as x IN (SELECT <column> FROM <table>) — or, for a list a WITH names, x IN (name)",
             )
         if isinstance(node, exp.In) and (named := _table_in_list(node, statement, rules, dialect)):
             # ClickHouse reads `x IN (db.table)` as the table, where sqlglot sees a column.

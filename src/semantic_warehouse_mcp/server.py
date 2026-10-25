@@ -32,6 +32,7 @@ LONG_TEXT = 2000
 # `list_metadata` lists each value of a key with at most this many values, none longer than this many characters.
 MENU_VALUES = 50
 MENU_TEXT = 100
+LOG_NAMES = 5  # the datasets left out the start's log names; `--check` names every one
 
 INSTRUCTIONS = (
     "semantic-warehouse-mcp answers questions about data in SQL databases, and never changes them. "
@@ -886,12 +887,8 @@ def main(argv: list[str] | None = None) -> None:
             fetched = f"at {repository.current.commit[:12]}" if repository.current else "not fetched"
             print(f"  - {repository.described}: {fetched}; {', '.join(sorted(set(repository.paths)))}")
         return
-    for connection in config.connections.values():  # said where the server's log is read
-        for note in connection.notes:
-            print(f"semantic-warehouse-mcp: {connection.name}: note: {note}", file=sys.stderr)
-        if connection.left_out:
-            gone = ", ".join(connection.left_out)
-            print(f"semantic-warehouse-mcp: {connection.name}: left out, no table of theirs: {gone}", file=sys.stderr)
+    for line in start_log(config):  # said where the server's log is read
+        print(line, file=sys.stderr)
     if config.repositories:
         signal.signal(signal.SIGTERM, stopped)
         repositories.keep_fresh(list(config.repositories.values()))
@@ -910,6 +907,21 @@ def stopped(number: int, frame: object) -> None:
     thread reading standard input, which a stopped server never closes. Over HTTP, after uvicorn has finished."""
     repositories.remove_copies()
     os._exit(128 + number)
+
+
+def start_log(config: Config) -> list[str]:
+    """What the server says in its log as it starts: each connection's notes, and the datasets left out — counted, the
+    first few named (`--check` names every one)."""
+    lines = []
+    for connection in config.connections.values():
+        lines += [f"semantic-warehouse-mcp: {connection.name}: note: {note}" for note in connection.notes]
+        if connection.left_out:
+            named = ", ".join(connection.left_out[:LOG_NAMES]) + (", …" if len(connection.left_out) > LOG_NAMES else "")
+            lines.append(
+                f"semantic-warehouse-mcp: {connection.name}: {len(connection.left_out)} datasets left out, no table of "
+                f"theirs: {named} (`--check` names every one)"
+            )
+    return lines
 
 
 def print_team_files(prefix: str, documents: tuple, skill_folders: tuple) -> None:

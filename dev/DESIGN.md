@@ -56,6 +56,10 @@ whether there were more; stop after `seconds`), `tables()` and `columns()`.
   cut always shows as the extra row (ClickHouse breaks after exceeding, at a block's end). `wait_end_of_query` so an
   error arrives as an error. The engine's own reading is `EXPLAIN QUERY TREE` (the analyzer, 24.3+): it must be a
   `QUERY` or `UNION`, and its `TABLE` nodes are the tables read — `x IN (db.table)` included — checked like the guard's.
+  Where the analyzer does not run queries (before 24.3; `analyzer_runs`, learnt at start), the parsed tree
+  (`run_passes = 0`) is read too, its names resolved by the interpreter's rules as measured on 22.11, and read as a
+  tree whose every line must be one ClickHouse prints — numbered in order, lists as long as they say, sections and nodes
+  alternating — since a quoted name with a line break in it makes lines (`dev/DECISIONS.md`).
   `dictGet…` / `dictHas` / `dictIsIn` / `joinGet…` name a dictionary or Join table in their first argument: the guard
   requires a string and checks it against `readable` (`table_reading_functions`). Table functions: `numbers`,
   `generateSeries` only.

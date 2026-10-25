@@ -148,12 +148,15 @@ write `IN (…)` for several. The table must be bounded as well; when both are m
 The guard cannot follow the query's structure — a shape its parser reads without its sources (for instance two
 tables with the same alias), ClickHouse's `x IN db.table` or `x IN (db.table)` (a readable table's name no table of the
 query goes by: a table to ClickHouse, a column to the guard's parser), or a dictionary named by an expression rather
-than a string. Write the query more plainly: `x IN (SELECT column FROM db.table)`; `dictGet('db.dictionary', …)`.
+than a string. Write the query more plainly: `x IN (SELECT column FROM db.table)`; for a list a `WITH` names,
+`x IN (name)`; `dictGet('db.dictionary', …)`.
 
 ### `engine_parse`
 
 The database's own parser reads the query differently from the guard — as more than one statement, or as something
-other than a `SELECT`, or cannot read it at all. The refusal quotes the engine.
+other than a `SELECT`, or cannot read it at all. The refusal quotes the engine. On ClickHouse it also covers a reading
+the server cannot be sure of — a table function not allowed, a name with a dot or a space in it, a tree a quoted name
+broke ([engines](engines.md#clickhouse)).
 
 ## Limits
 

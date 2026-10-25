@@ -12,6 +12,7 @@ import httpx
 import pytest
 
 IMAGE = "clickhouse/clickhouse-server:25.8"
+OLD_IMAGE = "clickhouse/clickhouse-server:22.11"
 ADMIN = (os.environ.get("SWM_TEST_CLICKHOUSE_USER", "admin"), os.environ.get("SWM_TEST_CLICKHOUSE_PASSWORD", "admin"))
 
 SHOP = [
@@ -41,6 +42,13 @@ SHOP = [
     """INSERT INTO swm_raw.events VALUES
         ('2026-02-27', 'cart_abandoned', 'c1'), ('2026-03-01', 'cart_abandoned', 'c2'),
         ('2026-03-02', 'cart_abandoned', 'c2'), ('2026-03-02', 'order_paid', 'c1')""",
+    # A log of every kind of event, its fields read out of the payload by ALIAS columns.
+    """CREATE TABLE swm_raw.log (event_date Date, event LowCardinality(String), payload String,
+        device String ALIAS JSONExtractString(payload, 'device'))
+        ENGINE = MergeTree PARTITION BY toYYYYMM(event_date) ORDER BY (event, event_date)""",
+    """INSERT INTO swm_raw.log (event_date, event, payload) VALUES
+        ('2026-03-01', 'opened', '{{"device": "phone"}}'), ('2026-03-01', 'opened', '{{"device": "tablet"}}'),
+        ('2026-03-02', 'opened', '{{"device": "phone"}}'), ('2026-03-02', 'closed', '{{"device": "phone"}}')""",
     "CREATE TABLE swm_secret.salaries (name String, amount UInt32) ENGINE = MergeTree ORDER BY name",
     "INSERT INTO swm_secret.salaries VALUES ('someone', 1)",
     "CREATE TABLE swm_secret.lookup (id UInt64, v String) ENGINE = MergeTree ORDER BY id",
@@ -111,19 +119,19 @@ def _wait(url: str) -> None:
     raise RuntimeError(f"ClickHouse at {url} did not start")
 
 
-@pytest.fixture(scope="session")
-def clickhouse_url():
-    url = os.environ.get("SWM_TEST_CLICKHOUSE_URL")
+def _serve(variable: str, image: str):
+    """The server named by `variable`, or a container of `image` started for the session; the shop built in it."""
+    url = os.environ.get(variable)
     container = None
     if not url:
         if shutil.which("docker") is None:
-            pytest.skip("no ClickHouse: set SWM_TEST_CLICKHOUSE_URL or install Docker")
+            pytest.skip(f"no ClickHouse: set {variable} or install Docker")
         port = _free_port()
         container = f"swm-test-clickhouse-{uuid.uuid4().hex[:8]}"
         started = subprocess.run(
             ["docker", "run", "-d", "--rm", "--name", container, "-p", f"127.0.0.1:{port}:8123",
              "-e", f"CLICKHOUSE_USER={ADMIN[0]}", "-e", f"CLICKHOUSE_PASSWORD={ADMIN[1]}",
-             "-e", "CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1", IMAGE],
+             "-e", "CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1", image],
             capture_output=True, text=True,
         )  # fmt: skip
         if started.returncode != 0:
@@ -138,3 +146,14 @@ def clickhouse_url():
     finally:
         if container:
             subprocess.run(["docker", "rm", "-f", container], capture_output=True)
+
+
+@pytest.fixture(scope="session")
+def clickhouse_url():
+    yield from _serve("SWM_TEST_CLICKHOUSE_URL", IMAGE)
+
+
+@pytest.fixture(scope="session")
+def old_clickhouse_url():
+    """A server before 24.3, whose analyzer answers EXPLAIN QUERY TREE but does not run queries."""
+    yield from _serve("SWM_TEST_CLICKHOUSE_OLD_URL", OLD_IMAGE)

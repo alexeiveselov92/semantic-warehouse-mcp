@@ -88,3 +88,15 @@ Mount the configuration and everything it names (semantic models, vocabularies, 
 `/config`, read-only; pass each secret the configuration names by its variable. Arguments after the image replace
 the command — `--config /config/other.yaml --http --host 0.0.0.0 --token-env OTHER`. Images are published for each
 release, tagged with its version and commit (`0.1.0`, `sha-1a2b3c4`), never `latest`.
+
+Where nothing can be mounted — a cluster that runs images only — build your own on the released one, with the
+configuration in it, and check it as it is built:
+
+```dockerfile
+FROM ghcr.io/alexeiveselov92/semantic-warehouse-mcp:<version>
+COPY --chown=10001:10001 my-config/ /config/
+RUN ["semantic-warehouse-mcp", "--config", "/config/config.yaml", "--check", "--offline"]
+```
+
+`--check --offline` stops the build on a wrong configuration without reaching a database. Secrets still come as
+variables when the container runs — never into the image.

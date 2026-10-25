@@ -29,7 +29,7 @@ whose engine's driver is missing stops the server at start, naming the extra to 
 each query's tree with ClickHouse's analyzer, asking for it resolved (`EXPLAIN QUERY TREE run_passes = 1` — what makes
 the analyzer of a server before 24.3, where it is experimental, resolve it too); a tree it cannot resolve is refused,
 never taken for a reading that found no table. A setting a server does not know (an older one lacks some limits) is
-not sent to it.
+not sent to it. 23.x answers no query tree unless the analyzer is on for the user, and stops the server at start.
 
 | Key | | What |
 |---|---|---|
@@ -76,7 +76,27 @@ sent: its queries keep its profile's own. The server checks that profile at star
 
 **The engine's own reading.** Before a query runs, ClickHouse explains it (`EXPLAIN QUERY TREE run_passes = 1`): it must read one
 `SELECT`, and every table ClickHouse says it reads — including a table in `x IN (db.table)` that looks like a column —
-is held to `readable` and the large-table bound, like the tables the guard found.
+is held to `readable` and the large-table bound, like the tables the guard found. A table function in the tree must be
+an allowed one; a table whose line the server cannot read, or whose name holds a dot, is refused.
+
+**Where the analyzer does not run queries** — before 24.3, or where a user's profile turns it off (`enable_analyzer`,
+`allow_experimental_analyzer`, read at start) — the analyzer's tree is not what runs: it refuses queries the server runs
+(on 22.11, a `GROUP BY` over an `ALIAS` column — Code 215), and reads some names otherwise (a CTE named before its
+definition is a table to the interpreter that runs the query). So the server also reads the tree as ClickHouse parsed it
+(`EXPLAIN QUERY TREE run_passes = 0`), by that interpreter's rules, and holds the tables of both to the same rules; when
+the analyzer cannot resolve a query, the parsed tree alone:
+
+- a name in a `FROM` or a `JOIN`, or right of `IN`, is a table — unless it is a CTE of its query or of a query around
+  it, and, inside a `WITH`, one defined before it;
+- right of `IN`, an alias the same query gives (`WITH [1, 2] AS ids … x IN (ids)`) is the alias — where the tree
+  says so with certainty: a quoted alias holding `, ` and a field's name makes the line ambiguous, and the name is then
+  read as a table;
+- a table of the connection's database that ClickHouse's analyzer names where the query has a CTE of that name (22.11
+  takes a CTE inside `IN (SELECT …)` for the table) is read as the parsed tree reads it;
+- a tree with a line no query prints — a line break in a quoted name makes one — is refused (`engine_parse`), as is a
+  name with a space or a comma in it;
+- `a.b` is printed alike for table `b` of database `a` and for a table named `a.b`: where no resolved tree tells them
+  apart, a query naming `a.b` is refused if the connection's database holds a table of that name.
 
 **Names.** The default schema is `database`; names are case-sensitive, as ClickHouse resolves them. ClickHouse has no
 catalogs: a three-part name is refused.

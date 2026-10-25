@@ -437,3 +437,41 @@ Also: `x IN (db.table)` — a readable table's name that no table of the query g
 table is listed in `large_tables` itself (documented — the guard cannot see behind it). Left as they are, said in the
 guide: a value is anything without a column or a subquery (`event = toString(rand())` passes — deliberate, like a wide
 bound); a `narrowed_by` naming a column the table lacks refuses every query over it.
+
+## 2026-10-25 · ClickHouse before 24.3: the tree as parsed is read too, by the rules of the interpreter that runs
+
+Found on a real installation (22.11): a `GROUP BY` over an `ALIAS` column was refused (`engine_parse`), though the
+server runs it. Measured on 22.11 in containers: `EXPLAIN QUERY TREE run_passes = 1` is answered by the experimental
+analyzer, which fails in its first pass (Code 215, whatever `passes` is asked); the old interpreter runs the query. The
+analyzer also reads names otherwise: a CTE named before its definition is a table to the interpreter (it read the
+table) and a CTE to the analyzer; a CTE inside `IN (SELECT …)` is, to the analyzer, the table of its name in the
+connection's database. So on those servers the resolved tree was never the reading of what runs — the guard's parser,
+reading names as the interpreter does, held. Other readings tried and left: `EXPLAIN PLAN` names MergeTree tables only
+(not Log, Memory, Merge, Distributed, nor the table of `IN (SELECT …)`); `EXPLAIN AST` does not name a CTE;
+`EXPLAIN SYNTAX` keeps the CTEs and needs parsing again. 23.x answers no tree with the analyzer off: it stays refused
+at start.
+
+Decided (the agent, at the author's word "do everything"): where the analyzer does not run queries (`enable_analyzer`,
+else `allow_experimental_analyzer`, read at start), the tree as parsed (`run_passes = 0` — it names CTEs) is read too,
+its names resolved by the interpreter's rules, measured: a name in a `FROM` or a `JOIN`, or right of `IN`, is a table,
+unless a CTE of its query or of a query around it — inside a `WITH`, one defined before it; right of `IN`, an alias of
+the same query comes first. The tables of both readings are held to the rules — but a table of the connection's
+database named as one of the query's CTEs is read as the parsed tree reads it; where the analyzer cannot resolve the
+query, the parsed tree alone. Where the analyzer runs queries, nothing changes: a tree it cannot resolve is a query that
+would fail.
+
+The parsed tree prints aliases and quoted names as written, and a line break in one makes lines of the tree: it is read
+as a tree whose every line ClickHouse could print — nodes numbered in order, lists as long as they say, sections and
+nodes alternating, `WITH` first, a section once, a CTE's line exact — or refused. An alias is taken only from a line
+holding one alias and one of the field after it (a quoted alias holding `, constant_value: ` makes two). `a.b` is
+printed alike for a table of database `a` and for one named `a.b`: without a resolved tree, the database is asked.
+
+Found on the way and closed: a resolved `TABLE` line with `FINAL`, or with a comma in its alias, slipped past the
+engine's reading (the guard still saw the table); table functions are now held to the allowed ones in either tree, and a
+name with more than one dot is refused.
+
+Verified: tests on 22.11 in a container (and in CI); 28 mutations of the new protections, 27 caught, the one survivor a
+redundant condition, removed. The real installation's query answered through the server, its numbers equal to the same
+query grouped by the stored column. A second reader (22.11 and 26.3): no query past both layers; two false refusals —
+a quoted name anywhere had turned off the aliases right of `IN`, and the analyzer's CTE-for-table above — both fixed and
+held by tests; `dictGet` / `joinGet` and views remain the guard's alone, as before.

@@ -24,6 +24,16 @@ jobs:
         options: >-
           --health-cmd "wget -qO- http://127.0.0.1:8123/ping || exit 1"
           --health-interval 2s --health-timeout 2s --health-retries 30
+      clickhouse-old:  # one before 24.3, whose analyzer does not run queries: tests/test_clickhouse_before_24_3.py
+        image: clickhouse/clickhouse-server:22.11
+        env:
+          CLICKHOUSE_USER: admin
+          CLICKHOUSE_PASSWORD: admin
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+        ports: ["8124:8123"]
+        options: >-
+          --health-cmd "wget -qO- http://127.0.0.1:8123/ping || exit 1"
+          --health-interval 2s --health-timeout 2s --health-retries 30
       postgres:  # a throwaway server for tests/test_postgres.py
         image: postgres:17-alpine
         env:
@@ -41,6 +51,7 @@ jobs:
           --health-retries 40
     env:
       SWM_TEST_CLICKHOUSE_URL: http://localhost:8123
+      SWM_TEST_CLICKHOUSE_OLD_URL: http://localhost:8124
       SWM_TEST_POSTGRES_URL: postgresql://postgres:admin@localhost:5432/postgres
       SWM_TEST_MYSQL_URL: mysql://root:admin@127.0.0.1:3306
     steps:
