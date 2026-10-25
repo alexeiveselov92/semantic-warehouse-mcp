@@ -90,6 +90,9 @@ class Adapter(ABC):
     # Functions that read a table named in one of their arguments (lower-case glob → the argument's position): the name
     # must be a string the guard checks against `readable`, like a table in FROM.
     table_reading_functions: ClassVar[tuple[tuple[str, int], ...]] = ()
+    # Whether an alias a query gives hides a column of the same name in its WHERE — then the guard counts a bound or a
+    # narrowing written with that bare name as the alias's, not the column's.
+    aliases_shadow_columns: ClassVar[bool] = False
 
     def __init__(self, settings: EngineSettings, base_dir: pathlib.Path) -> None:
         self.settings = settings

@@ -149,6 +149,17 @@ def test_a_query_past_its_time_is_stopped(adapter):
     assert time.monotonic() - start < 5  # stopped by ClickHouse itself, not only by the client giving up waiting
 
 
+def test_an_alias_hides_the_column_of_its_name_in_a_where(adapter):
+    # Why the guard does not count a bound written with a name an alias took (`aliases_shadow_columns`): ClickHouse
+    # filters the alias — here a constant before every date — so the rows of March are not the ones it keeps.
+    sql = (
+        "SELECT toDate('2020-01-01') AS event_date, count() FROM swm_raw.events WHERE event_date >= '2026-03-01' "
+        "GROUP BY event_date"
+    )
+    assert adapter.run(sql, max_rows=10, seconds=10).rows == []
+    assert adapter.run(sql.replace("AS event_date", "AS day"), max_rows=10, seconds=10).rows != []
+
+
 def test_values_come_exact(adapter):
     result = adapter.run(
         "SELECT order_id, order_date, amount, big, note FROM swm_marts.orders WHERE order_id = 'o1'", 10, 10
@@ -253,6 +264,16 @@ async def test_run_query_answers_and_the_number_holds(warehouse, clickhouse_url)
         ("SELECT joinGetOrNull('swm_secret.lookup', 'v', 1)", "(table_not_readable)"),
         ("SELECT dictGet(concat('swm_secret.', 'lookup_dict'), 'v', toUInt64(1))", "(unsupported)"),
         ("SELECT count() FROM swm_raw.events", "(large_table_unbounded)"),
+        (
+            "SELECT toDate('2020-01-01') AS event_date, count() FROM swm_raw.events WHERE event_date >= '2026-03-01' "
+            "GROUP BY event_date",
+            "an alias hides the column of its name",
+        ),
+        (
+            "SELECT count() FROM orders o JOIN swm_raw.events e ON e.customer_id = o.customer_id "
+            "WHERE e.event_date >= '2026-03-01'",
+            "(large_table_joined)",
+        ),
         ("SELECT * FROM url('http://example.com/x.csv', CSV)", "(table_function)"),
         ("SELECT * FROM orders SETTINGS max_result_rows = 0", "(query_settings)"),
     ],

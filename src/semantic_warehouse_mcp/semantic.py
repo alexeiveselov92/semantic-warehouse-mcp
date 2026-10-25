@@ -396,6 +396,49 @@ def rank(node: Any, words: list[str]) -> tuple[int, int] | None:
     return (2, -in_name) if holds(_strings(node)) else None
 
 
+def fields_holding(node: dict[str, Any], words: list[str]) -> list[str]:
+    """The names of a dataset's fields that hold every word of a search, in any case, anywhere in them as written."""
+    folded = [word.casefold() for word in words]
+    return [
+        field["name"]
+        for field in node.get("fields", [])
+        if folded and all(word in " ".join(_strings(field)).casefold() for word in folded)
+    ]
+
+
+def held(node: dict[str, Any], wanted: dict[str, list[Any]]) -> set[str]:
+    """The keys of `wanted` a node's own metadata holds a wanted value of, in any vendor's data: a list holding one of
+    the values, or a value equal to one — a boolean only to a boolean, a number only to a number."""
+    found: set[str] = set()
+    for extension in node.get("custom_extensions", []):
+        data = extension.get("data")
+        if not isinstance(data, dict):
+            continue
+        for key, values in wanted.items():
+            value = data.get(key)
+            items = value if isinstance(value, list) else [value]
+            if key in data and any(_same(item, one) for item in items for one in values):
+                found.add(key)
+    return found
+
+
+def metadata_match(node: dict[str, Any], wanted: dict[str, list[Any]]) -> list[str] | None:
+    """Whether a dataset or a metric holds, for every key of `wanted`, one of its values — itself, or one of its
+    fields: None when it does not; else the names of the fields that hold all it does not hold itself (none when it
+    holds everything itself)."""
+    missing = {key: values for key, values in wanted.items() if key not in held(node, wanted)}
+    if not missing:
+        return []
+    named = [field["name"] for field in node.get("fields", []) if held(field, missing) == set(missing)]
+    return named or None
+
+
+def _same(value: Any, wanted: Any) -> bool:
+    if isinstance(value, (dict, list)) or isinstance(value, bool) != isinstance(wanted, bool):
+        return False
+    return isinstance(value, str) == isinstance(wanted, str) and value == wanted
+
+
 def _strings(node: Any) -> Iterator[str]:
     if isinstance(node, str):
         yield node

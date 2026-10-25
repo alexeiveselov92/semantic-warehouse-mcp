@@ -71,6 +71,14 @@ def test_a_good_configuration_and_its_defaults(shop_path):
         ),
         (GOOD + "    large_tables: [{table: marts.events}]", "large_tables[0] → bound_by: required"),
         (
+            GOOD + "    large_tables: [{table: marts.events, bound_by: day, narrowed_by: event}]",
+            "large_tables[0] → narrowed_by: input should be a valid list",
+        ),
+        (
+            GOOD + "    large_tables: [{table: marts.events, bound_by: day, narrowed_by: ['']}]",
+            "large_tables[0] → narrowed_by[0]: string should have at least 1 character",
+        ),
+        (
             GOOD + "    limits: {rows: 0}",
             'connections[0] "shop" → limits → rows: input should be greater than 0 (got 0)',
         ),

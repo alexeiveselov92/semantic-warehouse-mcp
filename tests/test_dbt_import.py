@@ -143,6 +143,54 @@ def test_dbts_tags_never_overwrite_the_meta(imported):
     ]
 
 
+def test_the_tables_a_model_reads_and_its_sql_go_under_the_keys_named(imported):
+    document, result = imported(vendor_name="acme", dbt_depends_on="reads", dbt_code="sql")
+    orders = datasets(document)["orders"]["custom_extensions"][0]["data"]
+    assert orders["reads"] == ["raw.events"]
+    assert orders["sql"] == node(MANIFEST, "model.shop.orders")["raw_code"]
+    events = datasets(document)["raw__events"]["custom_extensions"][0]["data"]
+    assert "reads" not in events and "sql" not in events  # a source reads nothing and has no SQL
+    entry = dbt.ImportFile.model_validate({**BASE, "vendor_name": "acme", "dbt_depends_on": "reads", "dbt_code": "sql"})
+    lines = dbt.summary(dbt.Import("x", entry, pathlib.Path(), pathlib.Path()), result)
+    assert "2 tables with the tables they read, under 'reads'; 2 tables with their SQL, under 'sql'" in lines
+
+
+def test_what_a_model_reads_through_an_ephemeral_one_and_in_another_database(imported):
+    def change(manifest):
+        orders = manifest["nodes"]["model.shop.orders"]
+        paid = {**copy.deepcopy(orders), "unique_id": "model.shop.paid", "name": "paid", "alias": "paid"}
+        paid["config"] = {**paid["config"], "materialized": "ephemeral"}
+        paid["depends_on"] = {"nodes": ["source.shop.raw.events", "model.shop.customers", "model.shop.paid"]}
+        lookup = {**copy.deepcopy(orders), "unique_id": "model.other.lookup", "name": "lookup", "alias": "lookup"}
+        lookup |= {"package_name": "other", "schema": "ref", "database": "elsewhere"}
+        orders["depends_on"] = {"nodes": ["model.shop.paid", "model.other.lookup", "model.shop.gone", "test.shop.t"]}
+        manifest["nodes"] |= {"model.shop.paid": paid, "model.other.lookup": lookup}
+
+    document, _ = imported(change, vendor_name="acme", dbt_depends_on="reads")
+    found = datasets(document)
+    assert "paid" not in found  # ephemeral: no table of its own
+    assert found["orders"]["custom_extensions"][0]["data"]["reads"] == [
+        "elsewhere.ref.lookup",  # another database's: named with it
+        "marts.customers",  # through the ephemeral model, what it reads
+        "raw.events",
+    ]
+
+
+def test_dbts_own_never_overwrites_the_meta_nor_shares_a_key(imported):
+    found = imported(vendor_name="acme", dbt_code="layer", problems=True)
+    assert found == [
+        "model.shop.orders → meta: holds 'layer' already, the key `dbt_code` writes its SQL as",
+        "model.shop.customers → meta: holds 'layer' already, the key `dbt_code` writes its SQL as",
+    ]
+    found = imported(vendor_name="acme", dbt_tags="dbt", dbt_code="dbt", dbt_depends_on="reads", problems=True)
+    assert found == ["`dbt_tags`, `dbt_code`: each names 'dbt' — give each its own key"]
+    found = imported(dbt_depends_on="reads", dbt_code="sql", problems=True)
+    assert found == [
+        "dbt_depends_on: needs `vendor_name` — it writes the tables it reads into that vendor's data",
+        "dbt_code: needs `vendor_name` — it writes its SQL into that vendor's data",
+    ]
+
+
 def test_a_time_column_by_the_teams_mark_and_by_dbts_own(imported):
     def mark(manifest):
         node(manifest, "model.shop.customers")["columns"]["country"]["config"]["tags"] = ["when"]
@@ -230,7 +278,7 @@ def test_the_configuration_is_checked_every_problem_at_once(tmp_path):
         "tables[0]: 'marts' is not schema.table (either part may hold * or ?: marts.*)",
         "places → time_column[0]: give one of `meta_key` (with its `value`) or `dbt_tag`",
         "places → time_column[1]: `value` goes with `meta_key`, not with `dbt_tag`",
-        "dbt_tags: needs `vendor_name` — dbt's tags are written into that vendor's data",
+        "dbt_tags: needs `vendor_name` — it writes dbt's tags into that vendor's data",
         "manifest: missing.json does not exist (dbt writes it: dbt parse → target/manifest.json)",
     ]
 

@@ -21,8 +21,8 @@ status and `read_only: true`.
 
 The databases the server reads. Takes nothing. For each connection: `name`, `engine`, `description` (when the
 configuration gives one), `instructions` (the team's, as written), `readable` (the `schema.table` patterns a query may
-read), `large_tables` (each `table` with the column a query must bound, `bound_by`), `limits` (`rows` and `seconds` per
-query), `semantic_models` (the names of its [semantic models](semantic-models.md)), `context` (the names of its
+read), `large_tables` (each `table` with the column a query must bound, `bound_by`, and the columns it must hold to
+named values, `narrowed_by`, when it has them), `limits` (`rows` and `seconds` per query), `semantic_models` (the names of its [semantic models](semantic-models.md)), `context` (the names of its
 context documents) and `skills` (the names of its skills). Beside the list: the `instructions`, `context` and `skills`
 for the whole server, and the [repositories](configuration.md#repositories) they are read from — each one's `name`,
 `url`, `ref`, the `commit` served, `fetched_at` (when that commit was fetched), `checked_at` (when the repository was
@@ -38,7 +38,8 @@ stays). Reads the configuration only — it never reaches a database.
 ## `list_datasets`
 
 The datasets of the [semantic models](semantic-models.md): the tables the team described for agents. Takes
-`connection` (optional: left out, every connection's) and `search` (optional). Answers each dataset's `connection`,
+`connection` (optional: left out, every connection's), `search` and `metadata` (both optional). Answers each dataset's
+`connection`,
 `model`, `dataset` (its name), `source` (its table, or the query it is), `description` — its first line only, cut at
 200 characters, with `…` when there is more — `synonyms` (from its `ai_context`), and `custom_extensions` holding the
 own metadata its vocabulary marks `in_lists`, as written. Beside the list, `vocabulary`: what each key and each value
@@ -48,7 +49,17 @@ shown means.
 name, source, description, `ai_context`, its fields' names and descriptions, its own metadata. `search: "sales mart"`
 finds a dataset tagged `sales` in the layer `mart`. The closest come first: those with every word in their name, then
 those with every word in what they say of themselves (name, source, label, description, `ai_context`), then the rest —
-and, within each, those whose name holds more of the words.
+and, within each, those whose name holds more of the words. A dataset found by its fields, not by what it says of
+itself, names in `matched_fields` the fields holding every word: `search: "refund"` finds where refunds are kept.
+
+`metadata` keeps the datasets whose own metadata holds, for each key given, its value — or one of a list of values:
+`{"tags": "sales", "layer": ["mart", "dim"]}` is a dataset tagged `sales` in the layer `mart` or `dim`. A list holds a
+value when one of its items is it; another value, when it is equal (a number to a number, a boolean to a boolean). The
+dataset may hold it itself, or one of its fields — then `matched_fields` names the fields holding every key the
+dataset does not: `{"tags": "money"}` finds where amounts of money are, field by field. `list_metadata` shows the keys
+and their values; a key no model holds, or a value its vocabulary does not have, is named in `note` with the likely one
+meant. With [the dbt importer](dbt-importer.md)'s `dbt_depends_on`, `{"reads": "raw.events"}` finds what is built on a
+table. `search` and `metadata` together keep what both keep.
 
 **A list too long for one answer** — a model of hundreds of tables — names every dataset only, grouped by its model,
 with `compact: true` and a `note` saying so: the map of what there is, in one answer (`{"connection": "shop", "model":
@@ -76,7 +87,7 @@ only when two models have a dataset of that name; the error names them). Answers
 |---|---|
 | `connection`, `model`, `dataset` | where it is, its name |
 | `source`, `primary_key`, `unique_keys`, `description`, `ai_context`, `custom_extensions` | as written in the model (the ones it has) |
-| `table` | its source table as the database holds it now: `name`, `kind`, `comment`, and `bound_by` when a query must bound it. For a query, `note` says so; for a table that is gone, `note` says that |
+| `table` | its source table as the database holds it now: `name`, `kind`, `comment`, and `bound_by` (and `narrowed_by`) when a query must bound (and narrow) it. For a query, `note` says so; for a table that is gone, `note` says that |
 | `metrics` | the dataset's own metrics, as written |
 | `relationships` | the model's relationships from or to it, as written |
 | `other_columns` | the table's columns no field is: `name`, `type`, `nullable`, `comment` |
@@ -85,16 +96,37 @@ only when two models have a dataset of that name; the error names them). Answers
 
 A field's expression may be a calculation over columns (`amount - refunded_amount`): it then has no `column`, and the
 columns it reads are in `other_columns`. An answer too long for `answer_characters` is made smaller before a field is
-left out — `other_columns` to names only, then `other_columns`, `relationships`, `metrics` and `vocabulary` left out, in
-that order — and `note` says what was.
+left out — `other_columns` to names only, own metadata texts longer than 2000 characters cut (a model's SQL, written
+by the [dbt importer](dbt-importer.md)'s `dbt_code`), then `other_columns`, `relationships`, `metrics` and
+`vocabulary` left out, in that order — and `note` says what was.
 
 ## `list_metrics`
 
-The metrics of the semantic models: how the team defines its numbers. Takes `connection` and `search` (both optional,
-as in `list_datasets`). Answers each metric's `connection`, `model`, `metric` (its name), `dataset` (for a dataset's
+The metrics of the semantic models: how the team defines its numbers. Takes `connection`, `search` and `metadata` (all
+optional, as in `list_datasets`; a metric holds own metadata itself, having no fields). Answers each metric's `connection`, `model`, `metric` (its name), `dataset` (for a dataset's
 own metric), `description` (its first line), `synonyms`, and the own metadata marked `in_lists` — with `vocabulary`
 beside the list. A search lists the closest first, and a list too long for one answer names every metric only, by
 model (`compact`; a dataset's own metric as `dataset.metric`), as `list_datasets` does.
+
+## `list_metadata`
+
+The team's own metadata the semantic models hold: what `list_datasets` and `list_metrics` filter by (`metadata`) — the
+menu of a team's categories, layers, owners. Takes `connection` (optional). Answers, for each vendor and key:
+`vendor_name`, `key`, `description` (what the [vocabulary](semantic-models.md#vocabularies) says it is), on how many
+`datasets`, `fields`, `metrics` (and `models`, `relationships`) it is — and for a key of short values (words, numbers,
+or lists of them) each value used, the most used first: `value`, on how many it is, and its `definition` from the
+vocabulary. A key of more than 50 values, or of texts longer than 100 characters, says how many it has
+(`distinct_values`) rather than listing them; a key of mappings, neither. A key the vocabulary closes lists every value
+used, however many.
+
+```json
+{"metadata":[{"vendor_name":"acme","key":"tags","description":"What a table or a column is about.","datasets":4,
+  "fields":7,"values":[{"value":"identifier","fields":3,"definition":"A key naming one row of an entity."},
+  {"value":"sales","datasets":1,"definition":"Paid orders and their refunds."}]},
+ {"vendor_name":"acme","key":"layer","datasets":4,"values":[{"value":"mart","datasets":3},{"value":"raw","datasets":1}]},
+ {"vendor_name":"acme","key":"sql","description":"The SQL the dbt project builds this table with.","datasets":2,
+  "distinct_values":2}]}
+```
 
 ## `describe_metric`
 
@@ -118,13 +150,15 @@ Expressions are served as the model writes them; the SQL an agent runs is its ow
 ## `list_tables`
 
 The readable tables and views of a connection. Takes `connection`. Answers each `table` (`schema.table`), its `kind`
-(`table` or `view`), its `comment` as the database holds it (when it has one), and `bound_by` for a large table.
+(`table` or `view`), its `comment` as the database holds it (when it has one), and for a large table `bound_by` — and
+`narrowed_by` when it has one ([`large_tables`](configuration.md#large_tables)).
 Tables that are not readable are not listed.
 
 ## `describe_table`
 
 A readable table's columns. Takes `table` — `schema.table`, or a bare name in the engine's default schema — and
-`connection`. Answers the table's `kind` and `comment`, `bound_by` when it is a large table, and its `columns` in
+`connection`. Answers the table's `kind` and `comment`, `bound_by` (and `narrowed_by`) when it is a large table, and
+its `columns` in
 order: `name`, `type` (the engine's own), `nullable`, and the column's `comment` as the database holds it. A table that
 is not readable is refused (`table_not_readable`); one that does not exist is named in the error.
 

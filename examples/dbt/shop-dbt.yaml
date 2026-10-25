@@ -40,6 +40,12 @@ datasets:
         data:
           layer: mart
           tags: [customers]
+          reads: [raw.events]
+          sql: |-
+            -- Parsed, never run (../../dbt_project.yml): the made-up shop's customers come from examples/data/make_shop.py.
+            select customer_id, country, min(event_date) as signed_up_on
+            from {{ source('raw', 'events') }}
+            group by customer_id, country
   - name: dictionaries__countries
     source: dictionaries.countries
     description: Countries the shop sells to, with the currency each pays in.
@@ -121,6 +127,12 @@ datasets:
           layer: mart
           tags: [sales]
           owner: billing team
+          reads: [raw.events]
+          sql: |-
+            -- Parsed, never run (../../dbt_project.yml): the made-up shop's orders come from examples/data/make_shop.py.
+            select order_id, event_date as order_date, customer_id, currency, amount, refunded_amount
+            from {{ source('raw', 'events') }}
+            where event_name = 'order_paid'
   - name: raw__events
     source: raw.events
     description: |-

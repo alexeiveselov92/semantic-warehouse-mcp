@@ -18,7 +18,7 @@ const hangOf = (raw: string): number => (raw.match(/^ */)?.[0].length ?? 0) + 2;
 
 const isCut = (raw: string): boolean => raw.trim() === '…';
 
-type Value = string | number | boolean | null;
+type Value = string | number | boolean | null | Record<string, unknown>;
 
 /**
  * A tool call as an agent makes it: `→ describe_metric(metric="revenue")`. A `null` argument is shown as `…` — left
@@ -28,7 +28,9 @@ export function call(tool: string, args: Record<string, Value> = {}): string {
   const shown = Object.entries(args)
     .map(([key, value]) => {
       if (value === null) return `${key}=${span('t-cut', '…')}`;
-      if (typeof value === 'string') return `${key}=${span('t-str', esc(JSON.stringify(value)))}`;
+      if (typeof value === 'string' || typeof value === 'object') {
+        return `${key}=${span('t-str', esc(JSON.stringify(value)))}`;
+      }
       return `${key}=${span('t-num', String(value))}`;
     })
     .join(', ');

@@ -3,7 +3,7 @@
 A **semantic model** says what a database's tables mean: which table holds which entity, what each column is, how
 tables join, how a number is counted. semantic-warehouse-mcp reads semantic models written in
 [Apache Ossie](https://ossie.apache.org/), an open format, and serves them to agents as written
-(`list_datasets`, `describe_dataset`, `list_metrics`, `describe_metric` — [tools](tools.md)).
+(`list_datasets`, `describe_dataset`, `list_metrics`, `describe_metric`, `list_metadata` — [tools](tools.md)).
 
 A **vocabulary** declares your own metadata — the categories, layers, links to code, owners you add to a model — so
 the server can check it and tell agents what each value means.
@@ -172,6 +172,9 @@ Each key:
 | `type` | `string` | `string`, `list`, `mapping`, `number`, `boolean`, or `any` |
 | `values` | | a closed list: a mapping of each value to its definition, or a list of values. A `string` must be one of them; each item of a `list` too |
 | `in_lists` | `false` | shown in `list_datasets` and `list_metrics`, not only in `describe_dataset` and `describe_metric` |
+
+Whatever `in_lists` says, `list_metadata` shows every key and the values used, and `list_datasets` and `list_metrics`
+filter by any of them (`metadata`).
 
 A `list` or `mapping` without `values` holds anything inside: lists of links, nested mappings — written as you write
 them, served as written.

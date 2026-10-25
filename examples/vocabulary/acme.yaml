@@ -24,6 +24,13 @@ keys:
     values:
       raw: As the application sent it — events, not facts; duplicates possible.
       mart: Business-ready — one row per entity or fact, test data removed.
+  reads:
+    description: The tables this one is built from, as its dbt project names them — what feeds it.
+    levels: [dataset]
+    type: list
+  sql:
+    description: The SQL the dbt project builds this table with, as written — how its numbers are made.
+    levels: [dataset]
   written_by:
     description: Where the data of this table comes from in the application's code.
     levels: [dataset]

@@ -40,7 +40,8 @@ class _Strict(BaseModel):
 
 class LargeTableEntry(_Strict):
     table: str
-    bound_by: str
+    bound_by: Annotated[str, Field(min_length=1)]
+    narrowed_by: list[Annotated[str, Field(min_length=1)]] = []
 
 
 class InRepository(_Strict):
@@ -286,11 +287,14 @@ def _rules(entry: ConnectionEntry, adapter: Adapter) -> guard.Rules:
         dialect=adapter.dialect,
         default_schema=adapter.default_schema,
         readable=tuple(entry.readable),
-        large_tables=tuple(guard.LargeTable(large.table, large.bound_by) for large in entry.large_tables),
+        large_tables=tuple(
+            guard.LargeTable(large.table, large.bound_by, tuple(large.narrowed_by)) for large in entry.large_tables
+        ),
         catalog=adapter.catalog,
         allowed_table_functions=adapter.allowed_table_functions,
         denied_functions=adapter.denied_functions,
         table_reading_functions=adapter.table_reading_functions,
+        aliases_shadow_columns=adapter.aliases_shadow_columns,
     )
 
 

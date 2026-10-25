@@ -401,7 +401,7 @@ async def test_a_list_that_does_not_fit_names_every_item_by_its_model(shop):
     assert answer == {
         "compact": True,
         "note": "The full list of 3 datasets does not fit in the answer (1500 characters): each is named only. Give "
-        "`search` for their descriptions, or describe_dataset for one.",
+        "`search` or `metadata` for their descriptions, or describe_dataset for one.",
         "datasets": [{"connection": "shop", "model": "shop", "names": ["orders", "customers", "events"]}],
     }  # orders, the first, brings its vocabulary's 3000 characters: in full, not one would fit
     synonyms = ", ".join(f"a_synonym_of_revenue_{number}" for number in range(60))
@@ -557,6 +557,144 @@ async def test_list_datasets(shop):
 async def test_list_datasets_search(shop, search, expected):
     answer, _ = await call(shop(), "list_datasets", search=search)
     assert [d["dataset"] for d in answer["datasets"]] == expected
+
+
+@pytest.mark.parametrize(
+    ("metadata", "expected"),
+    [
+        ({"tags": "sales"}, [("orders", None)]),  # the dataset's own
+        ({"tags": "identifier"}, [("orders", ["order_id"])]),  # a field's: named
+        ({"tags": ["money", "sales"]}, [("orders", None)]),  # any one of a list
+        ({"tags": "identifier", "layer": "mart"}, [("orders", ["order_id"])]),  # every key
+        ({"owner": "billing"}, [("orders", None)]),  # a value that is not a list
+        ({"layer": "raw"}, []),
+        ({"tags": "sales", "owner": "someone"}, []),
+    ],
+)
+async def test_list_datasets_by_own_metadata(shop, metadata, expected):
+    answer, _ = await call(shop(), "list_datasets", metadata=metadata)
+    assert [(d["dataset"], d.get("matched_fields")) for d in answer["datasets"]] == expected
+    assert "note" not in answer
+
+
+async def test_a_metadata_filter_nothing_can_match_says_so(shop):
+    answer, _ = await call(shop(), "list_datasets", metadata={"tags": ["idnetifier", "sales"], "layr": "mart"})
+    assert answer["datasets"] == []  # every key must hold: `layr` holds nowhere
+    assert answer["note"] == (
+        "'idnetifier' is not one of the values of 'tags' — did you mean 'identifier'? list_metadata shows them. "
+        "No own metadata here has the key 'layr' — did you mean 'layer'? list_metadata shows the keys and their values."
+    )
+    text, is_error = await call(shop(), "list_datasets", metadata={"tags": []})
+    assert is_error
+    assert "`metadata` → tags: give a value, or a list of values" in text
+
+
+async def test_a_search_names_the_fields_it_found_in(shop):
+    answer, _ = await call(shop(), "list_datasets", search="event_date")
+    assert [(d["dataset"], d.get("matched_fields")) for d in answer["datasets"]] == [("events", ["event_date"])]
+    answer, _ = await call(shop(), "list_datasets", search="refunds")  # its description says it, and a field's
+    assert [(d["dataset"], d.get("matched_fields")) for d in answer["datasets"]] == [("orders", ["net_amount"])]
+    answer, _ = await call(shop(), "list_datasets", search="order", metadata={"tags": "identifier"})
+    assert [(d["dataset"], d.get("matched_fields")) for d in answer["datasets"]] == [("orders", ["order_id"])]
+
+
+def test_what_own_metadata_holds():
+    node = {
+        "custom_extensions": [
+            {"vendor_name": "a", "data": {"tags": ["x", "y"], "flag": True, "count": 1, "name": "1"}},
+            {"vendor_name": "b", "data": "not a mapping"},
+        ],
+        "fields": [
+            {"name": "f", "custom_extensions": [{"vendor_name": "a", "data": {"kind": "money", "unit": "eur"}}]},
+            {"name": "g", "custom_extensions": [{"vendor_name": "a", "data": {"kind": "money"}}]},
+        ],
+    }
+    assert semantic.held(node, {"tags": ["y"], "flag": [True], "count": [1], "name": ["1"]}) == {
+        "tags",
+        "flag",
+        "count",
+        "name",
+    }
+    assert semantic.held(node, {"flag": [1], "count": [True], "name": [1], "count ": [1]}) == set()
+    assert semantic.metadata_match(node, {"tags": ["x"]}) == []
+    assert semantic.metadata_match(node, {"kind": ["money"]}) == ["f", "g"]
+    assert semantic.metadata_match(node, {"kind": ["money"], "unit": ["eur"]}) == ["f"]  # one field holding both
+    assert semantic.metadata_match(node, {"kind": ["money"], "unit": ["usd"]}) is None
+    assert semantic.fields_holding({"fields": [{"name": "Order_Date"}, {"name": "x"}]}, ["order", "DATE"]) == [
+        "Order_Date"
+    ]
+
+
+async def test_list_metrics_by_own_metadata(shop):
+    owned = ("    description: Revenue net of refunds.\n", "    description: Revenue net of refunds.\n"
+             "    custom_extensions: [{vendor_name: acme, data: {owner: finance}}]\n")  # fmt: skip
+    answer, _ = await call(shop(owned), "list_metrics", metadata={"owner": "finance"})
+    assert [m["metric"] for m in answer["metrics"]] == ["revenue"]
+    answer, _ = await call(shop(owned), "list_metrics", metadata={"owner": "billing"})
+    assert answer["metrics"] == []
+
+
+async def test_list_metadata(shop):
+    answer, _ = await call(shop(), "list_metadata")
+    assert answer == {
+        "metadata": [
+            {
+                "vendor_name": "OTHER_TOOL",
+                "key": "anything",
+                "datasets": 1,
+                "values": [{"value": 1, "datasets": 1}, {"value": 2, "datasets": 1}],
+            },
+            {
+                "vendor_name": "acme",
+                "key": "tags",
+                "description": "What it is about.",
+                "fields": 1,
+                "datasets": 1,
+                "values": [
+                    {"value": "identifier", "fields": 1, "definition": "A key naming one row."},
+                    {"value": "sales", "datasets": 1, "definition": "Paid orders and refunds."},
+                ],
+            },
+            {
+                "vendor_name": "acme",
+                "key": "layer",
+                "datasets": 1,
+                "values": [{"value": "mart", "datasets": 1, "definition": "Business-ready."}],
+            },
+            {
+                "vendor_name": "acme",
+                "key": "owner",
+                "description": "The team to ask.",
+                "datasets": 1,
+                "values": [{"value": "billing", "datasets": 1}],
+            },
+        ]
+    }
+
+
+async def test_list_metadata_names_how_many_when_the_values_are_many_or_long(shop):
+    long = ("owner: billing", "owner: " + "b" * 101)
+    answer, _ = await call(shop(long), "list_metadata")
+    owner = next(item for item in answer["metadata"] if item["key"] == "owner")
+    assert owner == {"vendor_name": "acme", "key": "owner", "description": "The team to ask.", "datasets": 1,
+                     "distinct_values": 1}  # fmt: skip
+    many = ("owner: billing", "owner: billing, other: [" + ", ".join(f"v{i}" for i in range(51)) + "]")
+    vocabulary = VOCABULARY.replace("keys:", "unknown_keys: allow\nkeys:")
+    answer, _ = await call(shop(many, vocabulary=vocabulary), "list_metadata")
+    other = next(item for item in answer["metadata"] if item["key"] == "other")
+    assert other == {"vendor_name": "acme", "key": "other", "datasets": 1, "distinct_values": 51}
+
+
+async def test_describe_dataset_cuts_long_own_metadata_before_a_field(shop):
+    long = ("owner: billing", "owner: " + "b" * 3000)
+    answer, _ = await call(
+        shop(long, config=CONFIG + "limits: {answer_characters: 4000}\n"), "describe_dataset", dataset="orders"
+    )
+    assert len(answers.dumps(answer)) <= 4000
+    assert [field["name"] for field in answer["fields"]] == ["order_id", "net_amount"]
+    owner = next(e for e in answer["custom_extensions"] if e["vendor_name"] == "acme")["data"]["owner"]
+    assert owner == "b" * 2000 + "…"
+    assert "own metadata texts longer than 2000 characters cut, each ending in …" in answer["note"]
 
 
 async def test_describe_dataset(shop):

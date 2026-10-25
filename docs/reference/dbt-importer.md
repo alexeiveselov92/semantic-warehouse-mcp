@@ -31,6 +31,8 @@ model:
 tables: ["marts.*", "raw.events"]
 vendor_name: acme
 dbt_tags: dbt_tags
+dbt_depends_on: reads
+dbt_code: sql
 places:
   time_column:
     - { meta_key: tags, value: timestamp }
@@ -46,11 +48,28 @@ places:
 | `resources` | | which kinds of dbt resources: `model`, `seed`, `snapshot`, `source` — all by default |
 | `vendor_name` | | the `vendor_name` the tables' and columns' `meta` is written under, in `custom_extensions` — as written. Without it, `meta` is left out (the import says how much) |
 | `dbt_tags` | | the key of that vendor's data that dbt's own tags (`tags:` in dbt, its run-selection tags) are written under. Without it, they are left out. Needs `vendor_name`; a `meta` that already holds the key is refused |
+| `dbt_depends_on` | | the key of that vendor's data that the tables a model or a snapshot reads are written under — dbt's `depends_on`, each as `schema.table` (with its database first when it is not the project's), through an ephemeral model to the tables that one reads. Without it, left out. Needs `vendor_name`; a `meta` that already holds the key is refused |
+| `dbt_code` | | the key of that vendor's data that a model's or a snapshot's SQL is written under, as the project writes it (with its Jinja: `ref`, `source`, macros). Without it, left out. Needs `vendor_name`; a `meta` that already holds the key is refused |
 | `places` | | which of your own keys stand for Ossie's own places — below |
 
 `meta` and dbt's `tags` are different things in many projects: `meta` holds the team's categories, layers, provenance;
 `tags` are what `dbt run --select tag:…` selects by. Both are written as they are; a [vocabulary](semantic-models.md#vocabularies)
 for `vendor_name` checks them when the server starts — the keys you write there, the closed list of your categories.
+
+**What a table is built from, and how.** With `dbt_depends_on` and `dbt_code`, an agent reads beside a table the tables
+it is built from and the SQL that builds it — `describe_dataset` serves both, and `list_datasets` with
+[`metadata`](tools.md#list_datasets) finds what is built on a table (`metadata: {reads: raw.events}`). Declare the keys
+in your vocabulary like any other:
+
+```yaml
+  reads:
+    description: The tables this one is built from, as its dbt project names them — what feeds it.
+    levels: [dataset]
+    type: list
+  sql:
+    description: The SQL the dbt project builds this table with, as written — how its numbers are made.
+    levels: [dataset]
+```
 
 ### `places`
 
@@ -75,6 +94,7 @@ What is dbt's own, not a team's, the importer reads without being told:
 | the primary key dbt infers (from constraints, or a column tested `unique` and `not_null`) | `primary_key` — a column dbt quotes named by its own name, without the quotes dbt writes around it there |
 | a model's `event_time`; a column's `granularity` | that column is a time dimension |
 | a `relationships` test between two tables imported | an Ossie relationship from the tested column to the column it must be found in, named `<from>__<column>__<to>` (and `__<to's column>` when that column's name differs) — one per pair of columns, whatever order dbt wrote the tests in |
+| a model's or a snapshot's `depends_on` and `raw_code`, with `dbt_depends_on` and `dbt_code` | the tables it reads and its SQL, in the vendor's data — Ossie has no place of its own for them |
 
 Left out, and said in the import's summary: tables and tests of other packages, disabled models, ephemeral models (no
 table of their own), and tables of another database than the one the project's models are built in — a connection

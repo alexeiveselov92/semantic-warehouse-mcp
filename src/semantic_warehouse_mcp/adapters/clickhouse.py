@@ -107,6 +107,9 @@ class ClickHouseSettings(EngineSettings):
 class ClickHouseAdapter(Adapter):
     engine = "clickhouse"
     dialect = "clickhouse"
+    # `prefer_column_name_to_alias` is 0 by default, on both analyzers: `SELECT toDate(event_time) AS event_date …
+    # WHERE event_date >= …` filters the alias, and reads every partition.
+    aliases_shadow_columns = True
     settings_model = ClickHouseSettings
     allowed_table_functions = frozenset({"numbers", "generateseries", "generate_series"})
     # A dictionary or a Join table is read by its name in the first argument: checked against `readable`.

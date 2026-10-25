@@ -5,9 +5,11 @@ import json
 
 import duckdb
 import pytest
+from conftest import SHOP_CONFIG, write_config
 from mcp import Client
 
 from semantic_warehouse_mcp import answers
+from semantic_warehouse_mcp.config import load
 from semantic_warehouse_mcp.server import build_server
 
 pytestmark = pytest.mark.anyio
@@ -165,6 +167,26 @@ async def test_a_large_table_must_be_bounded(shop_config):
         "run_query",
         sql="SELECT count(*) FROM raw.events WHERE event_date >= DATE '2026-03-01' AND event_name = 'cart_abandoned'",
     )
+    assert not is_error
+    assert answer["rows"] == [[2]]
+
+
+async def test_a_large_table_narrowed_by_a_column(shop_path):
+    body = SHOP_CONFIG.format(rows=5, seconds=10, answer_characters=40_000)
+    body = body.replace("bound_by: event_date }", "bound_by: event_date, narrowed_by: [event_name] }")
+    config = load(write_config(shop_path.parent, body))
+    connections, _ = await call(config, "list_connections")
+    large = {"bound_by": "event_date", "narrowed_by": ["event_name"]}
+    assert connections["connections"][0]["large_tables"] == [{"table": "raw.events", **large}]
+    tables, _ = await call(config, "list_tables")
+    assert tables["tables"][-1] == {"table": "raw.events", "kind": "table", **large}
+    events, _ = await call(config, "describe_table", table="raw.events")
+    assert events["narrowed_by"] == ["event_name"]
+    bounded = "SELECT count(*) FROM raw.events WHERE event_date >= DATE '2026-03-01'"
+    text, is_error = await call(config, "run_query", sql=bounded)
+    assert is_error
+    assert "Refused by the guard (large_table_unnarrowed)" in text
+    answer, is_error = await call(config, "run_query", sql=bounded + " AND event_name IN ('cart_abandoned')")
     assert not is_error
     assert answer["rows"] == [[2]]
 

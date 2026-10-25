@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import datetime
+import difflib
 import os
 import signal
 import sys
 import time
+from collections import Counter
+from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
@@ -23,15 +27,23 @@ READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False)
 
 CONFIG_VARIABLE = "SEMANTIC_WAREHOUSE_MCP_CONFIG"
 
+# `describe_dataset` cuts its own metadata's texts to this many characters before it leaves out any field.
+LONG_TEXT = 2000
+# `list_metadata` lists each value of a key with at most this many values, none longer than this many characters.
+MENU_VALUES = 50
+MENU_TEXT = 100
+
 INSTRUCTIONS = (
     "semantic-warehouse-mcp answers questions about data in SQL databases, and never changes them. "
     "Start with `list_connections`. Where a connection has a semantic model, find the data in it first: "
     "`list_datasets` and `describe_dataset` (what each table means, its fields, keys and relationships, the team's own "
     "metadata with what its values mean), `list_metrics` and `describe_metric` (how a number is defined) — use a "
-    "metric's definition rather than writing your own. `list_tables` and `describe_table` show every readable table "
-    "as the database holds it. `run_query` runs one read-only SELECT. Each query is checked first: a refusal says why "
-    "and how to fix it. A large table must be bounded by its column (shown in `list_connections`, `describe_dataset` "
-    "and `describe_table`). "
+    "metric's definition rather than writing your own. `list_metadata` shows the values of the team's own metadata "
+    "(its categories, layers, …), which `list_datasets` and `list_metrics` filter by. `list_tables` and "
+    "`describe_table` show every readable table as the database holds it. `run_query` runs one read-only SELECT. Each "
+    "query is checked first: a refusal says why and how to fix it. A large table must be read alone in its SELECT "
+    "(joined as a subquery of its own), bounded by its column, and some held to named values of another (shown in "
+    "`list_connections`, `describe_dataset` and `describe_table`). "
     "The team that runs this server may give instructions (below, and in `list_connections`), context documents "
     "(`list_context`, `get_context`) and skills — how it does a kind of task (`list_skills`, `get_skill`): read the "
     "ones that bear on the question before querying. "
@@ -87,9 +99,9 @@ def build_server(config: Config | None = None) -> MCPServer:
     def list_connections() -> str:
         """The databases this server reads. For each connection: its name, engine and description; the team's
         instructions for it, as written; which tables are readable (schema.table patterns); which large tables a query
-        must bound by which column; the limits on rows and seconds per query; the names of its semantic models (their
-        datasets in `list_datasets`), of its context documents (read them with `get_context`) and of its skills (read
-        them with `get_skill`)."""
+        must bound by which column (`bound_by`) and hold to named values of which (`narrowed_by`); the limits on rows
+        and seconds per query; the names of its semantic models (their datasets in `list_datasets`), of its context
+        documents (read them with `get_context`) and of its skills (read them with `get_skill`)."""
         items = []
         for connection in connections.values():
             item = {"name": connection.name, "engine": connection.engine}
@@ -100,7 +112,7 @@ def build_server(config: Config | None = None) -> MCPServer:
             item["readable"] = list(connection.readable)
             if connection.large_tables:
                 item["large_tables"] = [
-                    {"table": large.table, "bound_by": large.bound_by} for large in connection.large_tables
+                    {"table": large.table, **large_facts(large)} for large in connection.large_tables
                 ]
             item["limits"] = {"rows": connection.limits.rows, "seconds": connection.limits.seconds}
             if connection.models:
@@ -345,12 +357,15 @@ def build_server(config: Config | None = None) -> MCPServer:
             item["custom_extensions"] = shown
         return item
 
-    def listing(key: str, kind: str, items: list[dict], searched: bool, describer: str) -> str:
+    def listing(key: str, kind: str, items: list[dict], searched: bool, describer: str, notes: list[str]) -> str:
         """A list of datasets or metrics: in full when it fits; else every one by name only, grouped by its model —
-        the map of what there is, in one answer — and, past that too, the first names that fit."""
+        the map of what there is, in one answer — and, past that too, the first names that fit. `notes` say what of
+        the filter asked for matches nothing the models hold."""
         answer: dict = {}
         if not any(c.models for c in connections.values()):
-            answer["note"] = "No connection has a semantic model; list_tables and describe_table show the tables."
+            notes = ["No connection has a semantic model; list_tables and describe_table show the tables.", *notes]
+        if notes:
+            answer["note"] = " ".join(notes)
         said = definitions(items)
         full = {**answer, **({"vocabulary": said} if said else {}), key: items}
         if len(answers.dumps(full)) <= answer_characters:
@@ -364,7 +379,7 @@ def build_server(config: Config | None = None) -> MCPServer:
         compact = {
             "compact": True,
             "note": f"The full list of {len(items)} {key} does not fit in the answer ({answer_characters} characters): "
-            f"each is named only{order}. Give `search` for their descriptions, or {describer} for one.",
+            f"each is named only{order}. Give `search` or `metadata` for their descriptions, or {describer} for one.",
             key: named,
         }
         shown = len(items)
@@ -375,40 +390,110 @@ def build_server(config: Config | None = None) -> MCPServer:
             compact["truncated"] = True
             compact["note"] = (
                 f"The full list of {len(items)} {key} does not fit in the answer ({answer_characters} characters), "
-                f"nor do all their names: only {shown} are named{order}. Give `search` or `connection` to list fewer."
+                f"nor do all their names: only {shown} are named{order}. Give `search`, `metadata` or `connection` to "
+                "list fewer."
             )
+        if notes:
+            compact["note"] = f"{' '.join(notes)} {compact['note']}"
         return answers.dumps(compact)
 
+    def wanted_metadata(metadata: dict[str, Any] | None) -> dict[str, list[Any]]:
+        """`metadata` as a list tool takes it — each key with a value or a list of them — as lists of values."""
+        wanted = {}
+        for key, value in (metadata or {}).items():
+            values = value if isinstance(value, list) else [value]
+            if not values:
+                raise ToolError(f"`metadata` → {key}: give a value, or a list of values any one of which will do.")
+            wanted[key] = values
+        return wanted
+
+    def metadata_notes(wanted: dict[str, list[Any]], scope: list[tuple[Connection, Model]]) -> list[str]:
+        """What of a metadata filter nothing can match: a key no vocabulary declares and no model in scope holds, a
+        value not among the ones a vocabulary closes the key to — each with the likely one meant."""
+        notes = []
+        held_keys = {
+            key
+            for _, model in scope
+            for _, _, extension in semantic.extensions(model.document)
+            if isinstance(extension.get("data"), dict)
+            for key in extension["data"]
+        }
+        declared = {key: entry for vocabulary in vocabularies.values() for key, entry in vocabulary.keys.items()}
+        for key, values in wanted.items():
+            if key not in declared and key not in held_keys:
+                known = sorted(set(declared) | held_keys)
+                hint = difflib.get_close_matches(key, known, n=1)
+                notes.append(
+                    f"No own metadata here has the key {key!r}"
+                    + (f" — did you mean {hint[0]!r}?" if hint else ".")
+                    + " list_metadata shows the keys and their values."
+                )
+                continue
+            closed = declared[key].values if key in declared else None
+            if not closed:
+                continue
+            for value in values:
+                if value not in closed:
+                    hint = difflib.get_close_matches(str(value), list(closed), n=1)
+                    notes.append(
+                        f"{value!r} is not one of the values of {key!r}"
+                        + (f" — did you mean {hint[0]!r}?" if hint else ".")
+                        + " list_metadata shows them."
+                    )
+        return notes
+
+    def matched(node: dict, rank: tuple[int, int], words: list[str], wanted: dict[str, list[Any]]) -> list[str] | None:
+        """The fields of a dataset where a list found what it was asked for — the own metadata `wanted` the dataset
+        does not hold itself, the words of a search it does not say of itself — or None when it does not match."""
+        named = semantic.metadata_match(node, wanted) if wanted else []
+        if named is None:
+            return None
+        if rank[0] == 2:
+            named = [*named, *semantic.fields_holding(node, words)]
+        return [field["name"] for field in node.get("fields", []) if field["name"] in named]
+
     @server.tool(annotations=READ_ONLY, structured_output=False)
-    def list_datasets(connection: str | None = None, search: str | None = None) -> str:
+    def list_datasets(
+        connection: str | None = None,
+        search: str | None = None,
+        metadata: dict[str, str | int | float | bool | list[str | int | float | bool]] | None = None,
+    ) -> str:
         """The datasets of the semantic models: the tables the team described for agents. For each: its connection
         and model, its name, its `source` table, the first line of its description (`…` when there is more), its
         synonyms, and the team's own metadata shown in lists — with what each value means in `vocabulary`. When they
         do not all fit, every dataset is named only, by model (`compact`): the map of what there is. `search` keeps the
         datasets holding every one of its words, in any case, anywhere in the dataset as written (name, description,
         fields, own metadata) — those with the words in their name first, then in their description, then elsewhere.
-        Read one in full with `describe_dataset`."""
+        `metadata` keeps the datasets whose own metadata holds, for each key given, its value or one of a list of
+        values (`{"tags": "sales", "layer": ["mart", "dim"]}`; `list_metadata` shows the keys and values) — the
+        dataset itself, or one of its fields. `matched_fields` names the fields where a dataset matched when it did
+        not itself. Read one in full with `describe_dataset`."""
         words = search.split() if search else []
-        found = [
-            (rank, index, summary(chosen, model, dataset, "dataset", source=dataset["source"]))
-            for index, (chosen, model, dataset) in enumerate(
-                (chosen, model, dataset)
-                for chosen, model in models_of(connection, None)
-                for dataset in model.document["datasets"]
-            )
-            if (rank := semantic.rank(dataset, words)) is not None
-        ]
+        wanted = wanted_metadata(metadata)
+        scope = models_of(connection, None)
+        found = []
+        places = [(chosen, owner, dataset) for chosen, owner in scope for dataset in owner.document["datasets"]]
+        for index, (chosen, owner, dataset) in enumerate(places):
+            rank = semantic.rank(dataset, words)
+            named = matched(dataset, rank, words, wanted) if rank is not None else None
+            if named is None:
+                continue
+            item = summary(chosen, owner, dataset, "dataset", source=dataset["source"])
+            if named:
+                item["matched_fields"] = named
+            found.append((rank, index, item))
         items = [item for _, _, item in sorted(found, key=lambda entry: entry[:2])]
-        return listing("datasets", "dataset", items, bool(words), "describe_dataset")
+        notes = metadata_notes(wanted, scope)
+        return listing("datasets", "dataset", items, bool(words), "describe_dataset", notes)
 
     @server.tool(annotations=READ_ONLY, structured_output=False)
     def describe_dataset(dataset: str, connection: str | None = None, model: str | None = None) -> str:
         """One dataset of a semantic model in full, as the team wrote it: its source, keys, description,
         `ai_context`, its own metadata (`custom_extensions`); its fields, each with its expression — and the live
         column's type and comment when a field is one column; its own metrics; its relationships. Beside them: the
-        source table as the database holds it now (`table`, with `bound_by` when a query must bound it), its columns
-        no field describes, and what the vocabulary says each own metadata value means. Give `connection` or `model`
-        when two models have a dataset of that name."""
+        source table as the database holds it now (`table`, with `bound_by` and `narrowed_by` when a query must bound
+        or narrow it), its columns no field describes, and what the vocabulary says each own metadata value means.
+        Give `connection` or `model` when two models have a dataset of that name."""
         found = [
             (chosen, owner, None, node)
             for chosen, owner in models_of(connection, model)
@@ -450,8 +535,21 @@ def build_server(config: Config | None = None) -> MCPServer:
         said = definitions([node, *node.get("fields", []), *node.get("metrics", []), *relationships])
         if said:
             answer["vocabulary"] = said
+        own = answer.get("custom_extensions")
+        cut = cut_texts(own, LONG_TEXT)
         smaller = [
             ("other_columns", [column["name"] for column in other], "`other_columns` holds names only"),
+            *(
+                [
+                    (
+                        "custom_extensions",
+                        cut,
+                        f"own metadata texts longer than {LONG_TEXT} characters cut, each ending in …",
+                    )
+                ]
+                if cut != own
+                else []
+            ),
             ("other_columns", None, "`other_columns` left out (describe_table shows them)"),
             ("relationships", None, "`relationships` left out"),
             ("metrics", None, "`metrics` left out (describe_metric shows them)"),
@@ -460,25 +558,83 @@ def build_server(config: Config | None = None) -> MCPServer:
         return answers.render_fitting(answer, "fields", fields, answer_characters, "", smaller)
 
     @server.tool(annotations=READ_ONLY, structured_output=False)
-    def list_metrics(connection: str | None = None, search: str | None = None) -> str:
+    def list_metrics(
+        connection: str | None = None,
+        search: str | None = None,
+        metadata: dict[str, str | int | float | bool | list[str | int | float | bool]] | None = None,
+    ) -> str:
         """The metrics of the semantic models: how the team defines its numbers. For each: its connection and model,
         its name, its `dataset` when it is a dataset's own metric, the first line of its description (`…` when there
         is more), its synonyms, and the team's own metadata shown in lists — with what each value means in
         `vocabulary`. `search` keeps the metrics holding every one of its words, in any case, anywhere in the metric as
-        written — those with the words in their name first, then in their description, then elsewhere. When they do not
-        all fit, every metric is named only, by model (`compact`). Read one in full — its expression — with
-        `describe_metric`."""
+        written — those with the words in their name first, then in their description, then elsewhere. `metadata`
+        keeps the metrics whose own metadata holds, for each key given, its value or one of a list of values
+        (`list_metadata` shows them). When they do not all fit, every metric is named only, by model (`compact`). Read
+        one in full — its expression — with `describe_metric`."""
         words = search.split() if search else []
+        wanted = wanted_metadata(metadata)
+        scope = models_of(connection, None)
         found = []
-        for chosen, model in models_of(connection, None):
-            for metric in model.document.get("metrics", []):
-                found.append((semantic.rank(metric, words), len(found), summary(chosen, model, metric, "metric")))
-            for dataset in model.document["datasets"]:
-                for metric in dataset.get("metrics", []):
-                    item = summary(chosen, model, metric, "metric", dataset=dataset["name"])
-                    found.append((semantic.rank(metric, words), len(found), item))
-        items = [item for rank, _, item in sorted((e for e in found if e[0] is not None), key=lambda e: e[:2])]
-        return listing("metrics", "metric", items, bool(words), "describe_metric")
+        for chosen, model in scope:
+            places = [(None, metric) for metric in model.document.get("metrics", [])]
+            places += [(d, metric) for d in model.document["datasets"] for metric in d.get("metrics", [])]
+            for dataset, metric in places:
+                rank = semantic.rank(metric, words)
+                if rank is None or (wanted and semantic.metadata_match(metric, wanted) is None):
+                    continue
+                extra = {"dataset": dataset["name"]} if dataset is not None else {}
+                found.append((rank, len(found), summary(chosen, model, metric, "metric", **extra)))
+        items = [item for _, _, item in sorted(found, key=lambda e: e[:2])]
+        notes = metadata_notes(wanted, scope)
+        return listing("metrics", "metric", items, bool(words), "describe_metric", notes)
+
+    @server.tool(annotations=READ_ONLY, structured_output=False)
+    def list_metadata(connection: str | None = None) -> str:
+        """The team's own metadata the semantic models hold — what `list_datasets` and `list_metrics` filter by
+        (`metadata`). For each vendor and key: what the vocabulary says it is, and on how many datasets, fields and
+        metrics it is. For a key of short values — words, numbers, a list of them — each value: on how many it is, and
+        what the vocabulary says it means, the most used first; a key of more than 50 values, or of long texts, says how
+        many it has."""
+        found: dict[tuple[str, str], dict] = {}
+        for _, model in models_of(connection, None):
+            for _, level, extension in semantic.extensions(model.document):
+                data = extension.get("data")
+                if not isinstance(data, dict):
+                    continue
+                for key, value in data.items():
+                    slot = found.setdefault((extension["vendor_name"], key), {"levels": Counter(), "values": {}})
+                    slot["levels"][level] += 1
+                    for item in value if isinstance(value, list) else [value]:
+                        if isinstance(item, (str, int, float, bool)):
+                            counted = slot["values"].setdefault((type(item).__name__, item), [item, Counter()])
+                            counted[1][level] += 1
+                        else:
+                            slot["opaque"] = True
+        items = []
+        for (vendor, key), slot in found.items():
+            declared = vocabularies.get(vendor)
+            entry = declared.keys.get(key) if declared else None
+            item: dict = {"vendor_name": vendor, "key": key}
+            if entry is not None and entry.description:
+                item["description"] = entry.description
+            item |= {f"{level}s": count for level, count in slot["levels"].items()}
+            values = sorted(slot["values"].values(), key=lambda v: (-sum(v[1].values()), str(v[0])))
+            closed = entry.values if entry is not None and entry.values else None
+            short = all(len(str(value)) <= MENU_TEXT for value, _ in values)
+            if values and not slot.get("opaque") and (closed or (len(values) <= MENU_VALUES and short)):
+                item["values"] = []
+                for value, counts in values:
+                    shown = {"value": value, **{f"{level}s": count for level, count in counts.items()}}
+                    if isinstance(closed, dict) and isinstance(value, str) and closed.get(value):
+                        shown["definition"] = closed[value]
+                    item["values"].append(shown)
+            elif values:
+                item["distinct_values"] = len(values)
+            items.append(item)
+        order = {(vendor, key): index for vendor, v in vocabularies.items() for index, key in enumerate(v.keys)}
+        items.sort(key=lambda item: (item["vendor_name"], order.get((item["vendor_name"], item["key"]), len(order))))
+        hint = "Give `connection` to list fewer."
+        return answers.render({}, "metadata", items, answer_characters, hint)
 
     @server.tool(annotations=READ_ONLY, structured_output=False)
     def describe_metric(
@@ -522,8 +678,8 @@ def build_server(config: Config | None = None) -> MCPServer:
     @server.tool(annotations=READ_ONLY, structured_output=False)
     def list_tables(connection: str | None = None) -> str:
         """The readable tables and views of a connection, with their comments as the database holds them. A large
-        table shows `bound_by`: the column a query over it must bound from below. `connection` may be left out when
-        there is only one."""
+        table shows `bound_by`: the column a query over it must bound from below — and `narrowed_by`, the columns it
+        must hold to values it names (`= …`, `IN (…)`). `connection` may be left out when there is only one."""
         chosen = pick(connection)
         connection_rule = connection_rules[chosen.name]
         try:
@@ -537,9 +693,7 @@ def build_server(config: Config | None = None) -> MCPServer:
             item = {"table": f"{table.schema}.{table.name}", "kind": table.kind}
             if table.comment:
                 item["comment"] = table.comment
-            bound = guard.large_table_bound(table.schema, table.name, connection_rule)
-            if bound:
-                item["bound_by"] = bound
+            item |= large_facts(guard.large_table(table.schema, table.name, connection_rule))
             items.append(item)
         return answers.render(
             {"connection": chosen.name}, "tables", items, answer_characters, "Name a table in describe_table."
@@ -548,7 +702,8 @@ def build_server(config: Config | None = None) -> MCPServer:
     @server.tool(annotations=READ_ONLY, structured_output=False)
     def describe_table(table: str, connection: str | None = None) -> str:
         """A readable table's columns in order — name, type, whether it can be null, and the column's comment as the
-        database holds it — with the table's own comment, and `bound_by` when it is a large table. `table` is
+        database holds it — with the table's own comment, and `bound_by` (and `narrowed_by`) when it is a large table.
+        `table` is
         `schema.table`, or a table of the default schema."""
         chosen = pick(connection)
         try:
@@ -578,10 +733,25 @@ def build_server(config: Config | None = None) -> MCPServer:
             facts["kind"] = listed[0].kind
             if listed[0].comment:
                 facts["comment"] = listed[0].comment
-        bound = guard.large_table_bound(schema, name, rule)
-        if bound:
-            facts["bound_by"] = bound
+        facts |= large_facts(guard.large_table(schema, name, rule))
         return facts, columns
+
+    def large_facts(large) -> dict:
+        """What a query over a large table must do: `bound_by`, the column it bounds from below, and `narrowed_by`,
+        the columns it holds to values it names — nothing for a table that is not large."""
+        if large is None:
+            return {}
+        return {"bound_by": large.bound_by, **({"narrowed_by": list(large.narrowed_by)} if large.narrowed_by else {})}
+
+    def cut_texts(node: Any, limit: int) -> Any:
+        """A copy of a value with each text longer than `limit` characters cut to it, ending in `…`."""
+        if isinstance(node, str):
+            return node if len(node) <= limit else node[:limit] + "…"
+        if isinstance(node, dict):
+            return {key: cut_texts(value, limit) for key, value in node.items()}
+        if isinstance(node, list):
+            return [cut_texts(value, limit) for value in node]
+        return copy.copy(node)
 
     def column_item(column, name: bool = True) -> dict:
         item = {"name": column.name} if name else {}
@@ -596,8 +766,9 @@ def build_server(config: Config | None = None) -> MCPServer:
     def run_query(sql: str, connection: str | None = None) -> str:
         """Run one read-only SELECT (WITH, UNION, joins, subqueries allowed) in the connection's SQL dialect.
 
-        The query is checked before it runs: only readable tables, a large table bounded from below by its column,
-        no writes, settings or file and network functions. A refusal says why and how to fix it.
+        The query is checked before it runs: only readable tables, a large table read alone in its SELECT (joined as a
+        subquery of its own) and bounded from below by its column (and held to named values of the columns it is
+        narrowed by), no writes, settings or file and network functions. A refusal says why and how to fix it.
 
         Answers `columns` (name, type), `rows` as arrays in column order, and the provenance: `connection`, `sql` as
         it ran, `started_at` (UTC), `seconds`, `row_count`, `truncated`. Rows past the connection's limit are not

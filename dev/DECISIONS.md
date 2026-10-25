@@ -382,3 +382,58 @@ and 715 tables, ~4 MB of YAML each): the server holds the model, an agent reads 
 in the model's order. Now a list that does not fit in full names every item, by model (`compact`) — the map, in 15 /
 21 thousand characters — and only past that are names left out, saying so; a search sorts by where its words are
 (all in the name; all in what the item says of itself; anywhere), then by how many the name holds.
+
+## 2026-10-25 · What the company's old data agent had that the server lacked: lineage, SQL, a tag filter, a narrowed log
+
+**The author** asked to compare the server with the data agent a company gave its employees before — a cloned folder
+of instructions that taught agents SQL against catalog tables the dbt project wrote into the warehouse — and then:
+"do everything". What it had and the server did not, in general terms:
+
+- **A model's SQL and what it reads.** The catalog held each model's code and its upstream tables; agents read the code
+  to see how a number is made — against the failure that matters most, a definition silently chosen. Ossie has no
+  place for either, so the dbt importer writes them into the vendor's data under keys the importer's configuration
+  names (`dbt_depends_on`, `dbt_code`), like `dbt_tags`: dbt's own facts, under the team's names, declared in its
+  vocabulary. Lineage is the tables a model reads, `schema.table` (the database first when it is not the project's),
+  through ephemeral models; the code is `raw_code`, as written — the compiled code needs a database to make. Measured on
+  two real projects: median 1.6 thousand characters of SQL, 90% under 4.4 thousand, the largest 37 thousand — so
+  `describe_dataset` serves it whole and, past the answer limit, cuts own-metadata texts to 2000 characters before it
+  leaves out any field.
+- **An exact filter by the team's own metadata.** The catalog was filtered with SQL (`has(tags, 'x') AND layer IN …`);
+  a search by words cannot tell a tag from a word in a column's description. `list_datasets` and `list_metrics` take
+  `metadata` — for each key, a value or any of a list; a list holds a value when an item is it, a number matches a
+  number and a boolean a boolean — held by the dataset or by one of its fields, which are then named
+  (`matched_fields`). A search found by fields names them too. A key or value nothing holds is named with the likely
+  one meant. `list_metadata` is the menu: every key and value in use, how many hold it, what the vocabulary says it
+  means — values listed for a closed key, or for at most 50 short ones; else counted.
+- **A log table that must be narrowed as well as bounded.** One event table of every kind of event, keyed by the event
+  first, was guarded on the client side to require `event = …` as well as the date. `large_tables` takes
+  `narrowed_by`: columns a query over the table must hold to named values, `=` or `IN (…)`, in the same places as the
+  bound — refused as `large_table_unnarrowed`. As with the bound, the guard checks the narrowing is there, not how wide.
+
+The company's own side — its house rules served as `instructions` and context documents, which tables are readable,
+which are large — is its repository's, not this one's.
+
+## 2026-10-25 · A large table is read alone in its SELECT; on ClickHouse an alias's name is no bound
+
+Refuted by a second reader the same day, measured on ClickHouse 22.11 to 26.3 in containers (`EXPLAIN indexes = 1`,
+rows read) and on DuckDB — two holes older than `narrowed_by`, which it had taken over from `bound_by`:
+
+- **A bound on a joined table is not a bound on its reading.** The guard counted a large table's own `JOIN … ON` and
+  the `WHERE` of the `SELECT` that joined it. ClickHouse read the whole joined table for `INNER` and `LEFT` joins
+  before 25.3, for `RIGHT`, `FULL` and `ANY` joins on every version; and a `RIGHT JOIN`'s `ON` never filters the side it
+  keeps, in SQL itself. What read only the bounded part on every version: the table alone in its `SELECT`'s `FROM`, or
+  a subquery of its own. So a large table read beside another table in one `SELECT` is refused (`large_table_joined`),
+  saying how to join it as a subquery — one rule for every engine and version, rather than a table of which join kind
+  each version applies a condition to. A join's `ON` no longer counts at all.
+- **On ClickHouse an alias hides the column of its name, in the `WHERE` too** (`prefer_column_name_to_alias = 0`, both
+  analyzers): `SELECT toDate(event_time) AS event_date … WHERE event_date >= …` bounds the alias and reads every
+  partition; `lower(event) AS event` loses the narrowing. Where an adapter says aliases shadow columns (ClickHouse
+  does; DuckDB reads the column first; PostgreSQL and MySQL have no aliases in a `WHERE`), a bare name some alias of the
+  query takes — `SELECT` list, scalar `WITH`, `ARRAY JOIN`, inside an expression — counts for no bound or narrowing;
+  the refusal says to rename the alias or qualify the column. An alias of the column itself hides nothing.
+
+Also: `x IN (db.table)` — a readable table's name that no table of the query goes by — is refused as `unsupported`
+(ClickHouse reads it as the table, the guard's parser as a column); a view, `Merge` or `Distributed` table over a large
+table is listed in `large_tables` itself (documented — the guard cannot see behind it). Left as they are, said in the
+guide: a value is anything without a column or a subquery (`event = toString(rand())` passes — deliberate, like a wide
+bound); a `narrowed_by` naming a column the table lacks refuses every query over it.

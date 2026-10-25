@@ -31,6 +31,16 @@ CLICKHOUSE = Rules(
     large_tables=(LargeTable("raw.*", "event_date"),),
     allowed_table_functions=frozenset({"numbers"}),
     denied_functions=frozenset({"joinget*", "dictget*", "dicthas", "dictishierarchy*"}),
+    aliases_shadow_columns=True,
+)
+
+# Event logs, every event in one table: a query names the events it reads as well as bounding the date.
+NARROWED = Rules(
+    dialect="clickhouse",
+    default_schema="default",
+    readable=("marts.*", "logs.*"),
+    large_tables=(LargeTable("logs.*", "event_date", ("event",)),),
+    aliases_shadow_columns=True,
 )
 
 
@@ -102,28 +112,79 @@ REFUSED = [
     (
         DUCKDB,
         "SELECT * FROM raw.events e JOIN marts.orders o ON e.customer_id = o.customer_id "
-        "WHERE event_date >= DATE '2026-03-01'",  # unqualified, two tables: whose column?
-        "large_table_unbounded",
+        "WHERE e.event_date >= DATE '2026-03-01'",  # a joined large table: read alone in a subquery
+        "large_table_joined",
     ),
     (
         DUCKDB,
         "SELECT * FROM raw.events e JOIN marts.orders o ON e.customer_id = o.customer_id "
-        "WHERE o.order_date >= DATE '2026-03-01'",  # another table's column bounds nothing
-        "large_table_unbounded",
+        "WHERE o.order_date >= DATE '2026-03-01'",
+        "large_table_joined",
     ),
     (
         DUCKDB,
         "SELECT * FROM raw.events a JOIN raw.events b ON a.customer_id = b.customer_id "
-        "WHERE a.event_date >= DATE '2026-03-01'",  # each reading of a large table is bounded on its own
-        "large_table_unbounded",
+        "WHERE a.event_date >= DATE '2026-03-01' AND b.event_date >= DATE '2026-03-01'",
+        "large_table_joined",
     ),
     (DUCKDB, "SELECT * FROM (secret.salaries) x", "table_not_readable"),  # a table in parentheses is still read
     (DUCKDB, "SELECT * FROM marts.orders, (secret.salaries)", "table_not_readable"),
     (DUCKDB, "SELECT * FROM marts.orders JOIN (secret.salaries) s ON true", "table_not_readable"),
     (DUCKDB, "WITH salaries AS (SELECT 1) SELECT * FROM secret.salaries", "table_not_readable"),  # not the CTE
-    (DUCKDB, "SELECT * FROM marts.orders, (raw.events)", "large_table_unbounded"),
+    (DUCKDB, "SELECT * FROM marts.orders, (raw.events)", "large_table_joined"),
     (DUCKDB, "SELECT * FROM range(3) WHERE 1 IN (SELECT 1 FROM raw.events)", "large_table_unbounded"),
     (CLICKHOUSE, "SELECT count() FROM raw.events", "large_table_unbounded"),
+    (
+        DUCKDB,  # SQL's own: a RIGHT JOIN's ON never filters the side it keeps
+        "SELECT * FROM marts.orders o RIGHT JOIN raw.events e "
+        "ON e.customer_id = o.customer_id AND e.event_date >= DATE '2026-03-01'",
+        "large_table_joined",
+    ),
+    (
+        CLICKHOUSE,
+        "SELECT * FROM marts.orders o ANY LEFT JOIN raw.events e ON e.customer_id = o.customer_id "
+        "WHERE e.event_date >= today()",
+        "large_table_joined",
+    ),
+    (CLICKHOUSE, "SELECT count() FROM numbers(3) n, raw.events WHERE event_date >= today()", "large_table_joined"),
+    (
+        CLICKHOUSE,
+        "SELECT toDate(event_time) AS event_date, count() FROM raw.events WHERE event_date >= today() "
+        "GROUP BY event_date",
+        "large_table_unbounded",  # an alias hides the column: the WHERE bounds toDate(event_time)
+    ),
+    (
+        CLICKHOUSE,
+        "WITH toDate('2026-03-01') AS event_date SELECT count() FROM raw.events WHERE event_date >= today()",
+        "large_table_unbounded",
+    ),
+    (
+        CLICKHOUSE,
+        "SELECT count() FROM raw.events ARRAY JOIN [event_date] AS event_date WHERE event_date >= today()",
+        "large_table_unbounded",
+    ),
+    (
+        NARROWED,
+        "SELECT lower(event) AS event, count() FROM logs.server WHERE event_date >= today() AND event = 'paid' "
+        "GROUP BY event",
+        "large_table_unnarrowed",
+    ),
+    (
+        NARROWED,
+        "SELECT count() FROM logs.server WHERE event_date >= today() AND event = 'paid' "
+        "AND notEmpty(lower(event) AS event)",
+        "large_table_unnarrowed",
+    ),
+    (
+        NARROWED,
+        "WITH 'paid' AS event SELECT count() FROM logs.server WHERE event_date >= today() AND event = 'paid'",
+        "large_table_unnarrowed",
+    ),  # fmt: skip
+    (
+        NARROWED,  # ClickHouse reads `IN (logs.server)` as the table, sqlglot as a column
+        "SELECT count() FROM logs.server WHERE event_date >= today() AND event = 'paid' AND user_id IN (logs.server)",
+        "unsupported",
+    ),
     (CLICKHOUSE, "SELECT count() FROM raw.sessions WHERE toDate(event_date) >= today()", "large_table_unbounded"),
     (CLICKHOUSE, "SELECT * FROM marts.orders SETTINGS max_result_rows = 0", "query_settings"),
     (CLICKHOUSE, "SELECT * FROM marts.orders SETTINGS readonly = 0", "query_settings"),
@@ -145,6 +206,79 @@ REFUSED = [
     (CLICKHOUSE, "SELECT * FROM marts.orders WHERE customer_id GLOBAL IN secret.ids", "unsupported"),
     (CLICKHOUSE, "INSERT INTO marts.orders SELECT 1", "not_a_select"),
     (CLICKHOUSE, "SYSTEM DROP DNS CACHE", "not_a_select"),
+    (NARROWED, "SELECT count() FROM logs.server WHERE event = 'paid'", "large_table_unbounded"),
+    (NARROWED, "SELECT count() FROM logs.server WHERE event_date >= today() - 7", "large_table_unnarrowed"),
+    (
+        NARROWED,
+        "SELECT count() FROM logs.server WHERE event_date >= today() AND event != 'paid'",
+        "large_table_unnarrowed",
+    ),
+    (
+        NARROWED,
+        "SELECT count() FROM logs.server WHERE event_date >= today() AND event > 'paid'",
+        "large_table_unnarrowed",
+    ),
+    (
+        NARROWED,
+        "SELECT count() FROM logs.server WHERE event_date >= today() AND event LIKE 'pa%'",
+        "large_table_unnarrowed",
+    ),
+    (
+        NARROWED,
+        "SELECT count() FROM logs.server WHERE event_date >= today() AND event BETWEEN 'a' AND 'z'",
+        "large_table_unnarrowed",
+    ),
+    (
+        NARROWED,
+        "SELECT count() FROM logs.server WHERE event_date >= today() AND (event = 'paid' OR true)",
+        "large_table_unnarrowed",
+    ),
+    (
+        NARROWED,
+        "SELECT count() FROM logs.server WHERE event_date >= today() AND event = event",
+        "large_table_unnarrowed",
+    ),
+    (
+        NARROWED,
+        "SELECT count() FROM logs.server WHERE event_date >= today() AND user_id = event",  # a column is no value
+        "large_table_unnarrowed",
+    ),
+    (
+        NARROWED,
+        "SELECT count() FROM logs.server WHERE event_date >= today() AND (SELECT 'paid') = event",
+        "large_table_unnarrowed",
+    ),
+    (
+        NARROWED,
+        "SELECT count() FROM logs.server WHERE event_date >= today() AND lower(event) = 'paid'",
+        "large_table_unnarrowed",
+    ),
+    (
+        NARROWED,
+        "SELECT count() FROM logs.server WHERE event_date >= today() AND NOT (event != 'paid')",
+        "large_table_unnarrowed",
+    ),
+    (
+        NARROWED,
+        "SELECT count() FROM logs.server WHERE event_date >= today() AND event IN (SELECT event FROM marts.events)",
+        "large_table_unnarrowed",
+    ),
+    (
+        NARROWED,
+        "SELECT * FROM (SELECT * FROM logs.server WHERE event_date >= today()) WHERE event = 'paid'",
+        "large_table_unnarrowed",
+    ),
+    (
+        NARROWED,
+        "SELECT count() FROM logs.server s, marts.users u WHERE s.event_date >= today() AND s.event = 'paid'",
+        "large_table_joined",
+    ),
+    (
+        NARROWED,
+        "SELECT count() FROM logs.server s JOIN logs.client c USING (user_id) "
+        "WHERE s.event_date >= today() AND s.event = 'paid' AND c.event_date >= today() AND c.event = 'paid'",
+        "large_table_joined",
+    ),
 ]
 
 
@@ -210,15 +344,20 @@ ALLOWED = [
     (DUCKDB, "SELECT count(*) FROM raw.events e WHERE e.event_date >= DATE '2026-03-01'", ["raw.events"]),
     (
         DUCKDB,
-        "SELECT * FROM raw.events e JOIN marts.orders o ON e.customer_id = o.customer_id "
-        "WHERE e.event_date >= DATE '2026-03-01'",
+        "SELECT * FROM (SELECT * FROM raw.events WHERE event_date >= DATE '2026-03-01') e "
+        "JOIN marts.orders o ON e.customer_id = o.customer_id",  # joined: alone in a subquery of its own
         ["marts.orders", "raw.events"],
     ),
     (
         DUCKDB,
-        "SELECT * FROM marts.orders o LEFT JOIN raw.events e "
-        "ON e.customer_id = o.customer_id AND e.event_date >= DATE '2026-03-01'",
+        "WITH e AS (SELECT * FROM raw.events WHERE event_date >= DATE '2026-03-01') "
+        "SELECT * FROM marts.orders o LEFT JOIN e ON e.customer_id = o.customer_id",
         ["marts.orders", "raw.events"],
+    ),
+    (
+        DUCKDB,  # DuckDB reads the column before an alias of its name
+        "SELECT CAST(event_time AS DATE) AS event_date FROM raw.events WHERE event_date >= DATE '2026-03-01'",
+        ["raw.events"],
     ),
     (
         DUCKDB,
@@ -242,6 +381,40 @@ ALLOWED = [
         ["marts.customers", "marts.orders"],
     ),
     (CLICKHOUSE, "SELECT uniqExact(customer_id) FROM marts.orders LIMIT 1 BY currency", ["marts.orders"]),
+    (NARROWED, "SELECT count() FROM logs.server WHERE event_date >= today() - 7 AND event = 'paid'", ["logs.server"]),
+    (NARROWED, "SELECT count() FROM logs.server WHERE 'paid' = event AND event_date >= today()", ["logs.server"]),
+    (NARROWED, "SELECT count() FROM logs.server WHERE event_date >= today() AND event IN ('a', 'b')", ["logs.server"]),
+    (NARROWED, "SELECT count() FROM logs.server PREWHERE event = 'paid' WHERE event_date >= today()", ["logs.server"]),
+    (
+        NARROWED,
+        "SELECT count() FROM logs.server WHERE event_date >= today() AND event GLOBAL IN ('a', 'b')",
+        ["logs.server"],
+    ),
+    (
+        NARROWED,
+        "SELECT count() FROM logs.server WHERE event_date >= today() AND event = concat('pa', 'id')",
+        ["logs.server"],
+    ),
+    (
+        NARROWED,
+        "SELECT count() FROM marts.users u JOIN (SELECT user_id FROM logs.server "
+        "WHERE event = 'paid' AND event_date >= today()) s ON s.user_id = u.user_id",
+        ["logs.server", "marts.users"],
+    ),
+    (
+        NARROWED,  # an alias of the column itself hides nothing
+        "SELECT event AS event, s.event_date AS event_date FROM logs.server s "
+        "WHERE event_date >= today() AND event = 'paid'",
+        ["logs.server"],
+    ),
+    (
+        NARROWED,  # qualified, the column is the table's whatever an alias is called
+        "SELECT lower(event) AS event FROM logs.server s WHERE s.event_date >= today() AND s.event = 'paid'",
+        ["logs.server"],
+    ),
+    (NARROWED, "SELECT * FROM marts.users u WHERE 1 IN (u.flag)", ["marts.users"]),  # a column of a table it reads
+    (NARROWED, "SELECT * FROM marts.users logs WHERE 1 IN (logs.flag)", ["marts.users"]),  # its alias, not a schema
+    (NARROWED, "SELECT * FROM marts.users WHERE 1 IN (point.x)", ["marts.users"]),  # a field, no readable table
 ]
 
 
@@ -258,10 +431,35 @@ def test_the_query_runs_as_written():
 def test_a_refusal_says_how_to_fix_it():
     with pytest.raises(Refused) as refusal:
         check("SELECT * FROM raw.events e JOIN marts.orders o USING (customer_id)", DUCKDB)
-    assert "e.event_date >= " in refusal.value.message
+    assert "read it alone in a subquery, bound event_date there, and join that — e.g. JOIN (SELECT … FROM " in (
+        refusal.value.message
+    )
+    assert "raw.events WHERE event_date >= <a date>) AS e ON …" in refusal.value.message
     with pytest.raises(Refused) as refusal:
         check("SELECT * FROM secret.salaries", DUCKDB)
     assert "readable: marts.*, raw.events" in refusal.value.message
+
+
+def test_a_narrowing_refusal_says_how_to_fix_it():
+    with pytest.raises(Refused) as refusal:
+        check("SELECT count() FROM logs.server WHERE event = 'paid'", NARROWED)
+    assert "bound event_date from below" in refusal.value.message
+    assert "name the values of event there too" in refusal.value.message
+    with pytest.raises(Refused) as refusal:
+        check("SELECT count() FROM logs.server s, marts.users u WHERE s.event_date >= today()", NARROWED)
+    assert "WHERE event_date >= <a date> AND event = <a value>) AS s ON …" in refusal.value.message
+    with pytest.raises(Refused) as refusal:
+        check("SELECT lower(event) AS event FROM logs.server s WHERE event_date >= today() AND event = 'a'", NARROWED)
+    assert refusal.value.message.endswith(
+        "the query names lower(event) AS event, and on this connection an alias hides the column of its name — rename "
+        "the alias, or qualify the column: s.event"
+    )
+    checked = check("SELECT 1", NARROWED)
+    with pytest.raises(Refused) as refusal:
+        guard.check_engine_tables(((None, "logs", "server"),), checked, NARROWED)
+    assert "bound event_date and name the values of event there" in refusal.value.message
+    assert guard.large_table("logs", "client", NARROWED) == LargeTable("logs.*", "event_date", ("event",))
+    assert guard.large_table("marts", "users", NARROWED) is None
 
 
 def test_names_as_stored_and_as_written():

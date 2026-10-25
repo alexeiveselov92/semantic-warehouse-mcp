@@ -14,6 +14,8 @@ model:                                        # the Ossie model it writes
 tables: ["marts.*", "raw.events", "dictionaries.*"]   # which tables, as the database names them (schema.table)
 vendor_name: acme                             # each table's and column's meta goes under it, as written —
                                               # checked against ../vocabulary/acme.yaml when the server starts
+dbt_depends_on: reads                         # the tables each one is built from (dbt's depends_on), under `reads`
+dbt_code: sql                                 # each model's SQL as the project writes it, under `sql`
 places:                                       # which of the team's keys stand for Ossie's own places
   time_column:
     - { meta_key: tags, value: timestamp }    # a column whose meta `tags` holds `timestamp` is a time column

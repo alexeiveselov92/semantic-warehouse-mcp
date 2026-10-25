@@ -66,6 +66,11 @@ The engine production work runs on (the author, 2026-10-24) — moved up from "t
 - [x] The dialect question settled and written in `DECISIONS.md`. ✅ 2026-10-24 — the author: an expression runs as
       written in its connection's dialect, never translated (sqlglot's translation measured not neutral); variants per
       engine in our own `custom_extensions`; built with the metrics (milestone 6).
+- [x] Beyond the plan, from a comparison with a company's earlier data agent (the author, 2026-10-25): what a model
+      reads and its SQL from dbt (`dbt_depends_on`, `dbt_code`); lists filtered by the team's own metadata, with the
+      fields that matched, and `list_metadata`, the menu of its values; `narrowed_by` for a log of every kind of event.
+      ✅ 2026-10-25 — measured on two real projects; real Claude Code found lineage, money columns and a model's SQL
+      through them.
 
 ## Milestone 4. The docs site — 1 session (built the same sitting as milestone 3's end)
 

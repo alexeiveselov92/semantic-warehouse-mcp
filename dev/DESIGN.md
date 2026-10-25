@@ -268,6 +268,7 @@ Ossie stays the model of the data; an Ossie document can carry the layer in `cus
 | `list_tables`, `describe_table` | the readable tables and views, their columns and the database's own comments — before a semantic model exists |
 | `list_datasets`, `describe_dataset` | the semantic model's datasets — fields, keys, relationships, `ai_context`, `custom_extensions` — with the live table's columns beside |
 | `list_metrics`, `describe_metric` | metrics with their definitions |
+| `list_metadata` | the team's own metadata in use — each key and value, how many hold it, what it means: what the lists filter by |
 | `query_metric` | a metric by dimensions, filters and a time range — SQL compiled from the model, run through the guard |
 | `run_query` | one read-only `SELECT`, through the guard |
 | `get_context`, `list_skills`, `get_skill` | the documents and skills, as written |
@@ -287,11 +288,12 @@ The database's own read-only user is the line that holds; the guard makes refusa
 - **every table node is a table read** — checked against `readable` wherever sqlglot placed it — unless it is proven a
   CTE's name (sqlglot resolves it to a CTE and it is unqualified). Safe by default: a table in parentheses
   (`FROM (secret.t) x`), which sqlglot wraps as a derived table, was read past an earlier version;
-- a `large_tables` table is bounded **from below, on the column itself, against a value** (no column, no subquery), as a
-  top-level `AND` (or `NOT (col < …)`) of the `WHERE` / `PREWHERE` of the query that reads it or of its own
-  `JOIN … ON`; qualified by the
-  alias it is selected under when that query reads more than one table. The guard checks the bound is there, not how
-  wide it is;
+- a `large_tables` table is **read alone in its `SELECT`** (joined only as a subquery of its own: no engine applies a
+  join's condition to every joined table's reading — measured, `DECISIONS.md`) and bounded **from below, on the column
+  itself, against a value** (no column, no subquery), as a top-level `AND` (or `NOT (col < …)`) of that `SELECT`'s
+  `WHERE` / `PREWHERE` — and held to named values (`=`, `IN (…)`) of each column it is `narrowed_by`. Where the engine
+  lets an alias hide a column (ClickHouse), a name an alias of the query takes counts for neither. The guard checks the
+  bound is there, not how wide it is;
 - sqlglot's own failures while following a query's structure are refusals (`unsupported`), never crashes;
 - **the query runs as written** (trailing semicolons dropped), not as sqlglot would regenerate it — a regenerated query
   could differ from the agent's in meaning; instead it is **read twice**: the engine's own parser must also see one

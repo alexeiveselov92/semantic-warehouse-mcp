@@ -5,7 +5,7 @@ readable tables, with large tables bounded; anything else is refused with a code
 
 ```text
 Refused by the guard (large_table_unbounded): raw.events is a large table: bound event_date from below in the WHERE
-of the query that reads it, e.g. WHERE e.event_date >= <a date> (with more than one table there, qualify it: e.event_date).
+of the query that reads it, e.g. WHERE event_date >= <a date> — the column itself, not a function of it.
 ```
 
 **What holds the line.** The database's own read-only means hold it: a read-only user, a read-only session, files and
@@ -24,7 +24,9 @@ which tables are read, give the server a user that can read only those.
    `unnest`); functions that reach files, the network or other servers are refused.
 6. **Every table it reads is `readable`** — wherever it is read: `FROM`, `JOIN`, a subquery, a CTE, `IN (SELECT …)`.
    A table name without a schema is in the engine's default schema. A name in another catalog is refused.
-7. **Every large table is bounded** in the query that reads it — see [`large_table_unbounded`](#large_table_unbounded).
+7. **Every large table is read alone in its `SELECT`, and bounded there** — see
+   [`large_table_joined`](#large_table_joined) and [`large_table_unbounded`](#large_table_unbounded) — and held to
+   named values of the columns it is narrowed by, see [`large_table_unnarrowed`](#large_table_unnarrowed).
 8. **The engine's own parser agrees**, where the engine has one to ask: one statement, a `SELECT` — and the tables the
    engine says it reads are held to the same rules (6 and 7), so a table the guard's parser took for something else
    is still checked.
@@ -83,24 +85,70 @@ says it reads it. The refusal lists the patterns; `list_tables` shows the readab
 
 The query reads a large table without bounding its column from below. The bound must be:
 
-- **in the query that reads the table** — the `WHERE` (or ClickHouse's `PREWHERE`) of the `SELECT` whose `FROM` or
-  `JOIN` names it, or that join's own `ON`. A bound in an outer query does not count: `SELECT * FROM (SELECT * FROM
-  raw.events) WHERE event_date >= …` is refused — bound it inside;
+- **in the query that reads the table** — the `WHERE` (or ClickHouse's `PREWHERE`) of the `SELECT` whose `FROM` names
+  it, the table alone there ([`large_table_joined`](#large_table_joined)). A bound in an outer query does not count:
+  `SELECT * FROM (SELECT * FROM raw.events) WHERE event_date >= …` is refused — bound it inside;
 - **a top-level `AND`** of that condition — a bound under an `OR` does not count;
 - **on the column itself**, not a function of it: `event_date >= '2026-03-01'`, `event_date > today() - 7`,
   `event_date = yesterday()`, `event_date BETWEEN … AND …`, `event_date IN (…)`, `NOT (event_date < …)`. An upper
   bound alone does not count;
 - **against a value** — a constant or a function of constants (`today() - 7`), no column and no subquery in it;
-- **qualified when the query reads more than one table there** — `e.event_date`, by the table's alias.
+- **not a name an alias took, on ClickHouse.** There an alias hides the column of its name, in the `WHERE` too:
+  `SELECT toDate(event_time) AS event_date … WHERE event_date >= …` bounds `toDate(event_time)` and reads every
+  partition. Where the query gives an alias that name — in its `SELECT` list, a `WITH <value> AS name`, an
+  `ARRAY JOIN`, inside an expression — the bare name does not count; rename the alias, or qualify the column by its
+  table (`e.event_date`). DuckDB reads the column first, and PostgreSQL and MySQL have no aliases in a `WHERE`.
 
 The guard checks that the bound is there, not how wide it is: `event_date >= '1970-01-01'` passes and reads the whole
-table. The rule keeps an agent from forgetting the bound; it does not stop one that sets it wide on purpose.
+table, and a value is anything without a column or a subquery — a function's result is not judged. The rule keeps an
+agent from forgetting the bound; it does not stop one that sets it wide on purpose.
+
+**A view over a large table** — or a table that reads it, as ClickHouse's `Merge` and `Distributed` do — is read by the
+database without the guard seeing the large table behind it: list it in `large_tables` itself (with the column it
+exposes), or leave it out of `readable`.
+
+### `large_table_joined`
+
+The query reads a large table beside another table in one `SELECT` — a join, or a comma between them. Whether a
+database applies a join's `ON`, or the `WHERE`, to the reading of the joined table depends on the kind of join and on the
+database and its version — measured on ClickHouse: `INNER` and `LEFT JOIN … ON` read the whole joined table before
+25.3, `RIGHT`, `FULL` and `ANY` joins on every version; and a `RIGHT JOIN`'s `ON` never filters the side it keeps, in
+any database. So a large table is read alone in its `SELECT`, and joined as a subquery of its own, bounded there:
+
+```sql
+SELECT u.country, count()
+FROM marts.users AS u
+JOIN (SELECT user_id FROM raw.events WHERE event_date >= '2026-03-01') AS e ON e.user_id = u.user_id
+GROUP BY u.country
+```
+
+A CTE works the same way, as do `IN (SELECT …)` and `EXISTS (SELECT …)` over the large table.
+
+### `large_table_unnarrowed`
+
+The query reads a large table without naming the values of a column the table is narrowed by (`narrowed_by` in
+[`large_tables`](configuration.md#large_tables)) — the shape of an event log that keeps every kind of event in one
+table, where a query reads one kind or a few:
+
+```text
+Refused by the guard (large_table_unnarrowed): logs.events is a large table: name the values of event_name in the WHERE
+of the query that reads it, e.g. WHERE event_name = <a value>, or event_name IN (<values>) — the column itself, not a
+function of it.
+```
+
+The narrowing is held to the same places as the bound — in the query that reads the table, a top-level `AND`, on the
+column itself, not a name an alias took — and it must be **`=` or `IN (…)` against values**:
+`event_name = 'order_paid'`, `'order_paid' = event_name`, `event_name IN ('cart_abandoned', 'order_paid')`. A range
+(`>`, `BETWEEN`), `LIKE`, `!=`, `IN (SELECT …)`, a function of the column, or values joined by `OR` do not count:
+write `IN (…)` for several. The table must be bounded as well; when both are missing, the refusal is
+`large_table_unbounded` and says both.
 
 ### `unsupported`
 
 The guard cannot follow the query's structure — a shape its parser reads without its sources (for instance two
-tables with the same alias), ClickHouse's `x IN db.table`, or a dictionary named by an expression rather than a string.
-Write the query more plainly: `x IN (SELECT column FROM db.table)`; `dictGet('db.dictionary', …)`.
+tables with the same alias), ClickHouse's `x IN db.table` or `x IN (db.table)` (a readable table's name no table of the
+query goes by: a table to ClickHouse, a column to the guard's parser), or a dictionary named by an expression rather
+than a string. Write the query more plainly: `x IN (SELECT column FROM db.table)`; `dictGet('db.dictionary', …)`.
 
 ### `engine_parse`
 

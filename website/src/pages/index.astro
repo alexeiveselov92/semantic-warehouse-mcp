@@ -228,7 +228,7 @@ const ownMetadataYaml = yaml(`  - name: orders
               code: https://github.com/acme/shop-backend/blob/main/billing/order_paid.go`);
 
 const listDatasets =
-  call('list_datasets', { search: 'sales' }) +
+  call('list_datasets', { metadata: { tags: 'sales' } }) +
   json(String.raw`{
   "vocabulary": {
     "acme": {
@@ -463,7 +463,7 @@ $ export SWM_TOKEN=…        # a long random value
 $ uvx --from 'semantic-warehouse-mcp[all]' semantic-warehouse-mcp \\
     --config config.yaml --http --host 0.0.0.0 --token-env SWM_TOKEN
 $ curl -s localhost:8000/health
-{"status":"ok","name":"semantic-warehouse-mcp","version":"0.5.0"}
+{"status":"ok","name":"semantic-warehouse-mcp","version":"0.6.0"}
 
 # each person's agent
 $ claude mcp add --transport http warehouse \\
@@ -480,6 +480,7 @@ const tools = [
   'describe_dataset',
   'list_metrics',
   'describe_metric',
+  'list_metadata',
   'list_context',
   'get_context',
   'list_skills',
@@ -561,7 +562,7 @@ const tools = [
             <li><span>image</span><code>{image}</code></li>
           </ul>
           <ul class="hero-stats" aria-label="At a glance">
-            <li><strong>13</strong> read-only tools</li>
+            <li><strong>14</strong> read-only tools</li>
             <li><strong>ClickHouse</strong>, <strong>PostgreSQL</strong>, <strong>MySQL</strong>, <strong>DuckDB</strong></li>
             <li><strong>stdio</strong> or <strong>Streamable HTTP</strong></li>
           </ul>

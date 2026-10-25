@@ -11,16 +11,19 @@ it lets agents find the right tables, read what they mean and query them, safely
 ## What it does now
 
 - **ClickHouse, PostgreSQL, MySQL and DuckDB**, configured in one YAML file: the tables agents may read, the large tables a query must
-  bound, limits per query; secrets by variable name, never written in it.
+  bound (and the columns it must name values of — an event log of every kind of event), limits per query; secrets by
+  variable name, never written in it.
 - **Read-only, checked twice**: one `SELECT` at a time, parsed for the database's own dialect by
   [sqlglot](https://github.com/tobymao/sqlglot) and by the database itself; only the tables you allow, wherever they
   are read; large tables bounded; rows and time capped, never cut without saying so — on top of a read-only database
   user. Every answer carries the SQL as it ran and when.
 - **A semantic layer in Apache Ossie**: datasets, fields, relationships and metrics, with `ai_context` for agents and
   `custom_extensions` for anything of your own — categories, layers, links to code, owners — checked against a
-  vocabulary you declare and served with what each value means.
+  vocabulary you declare and served with what each value means — and lists filtered by it, with the menu of its
+  values.
 - **An importer from dbt**: `semantic-warehouse-mcp import-dbt` writes your dbt project's tables, descriptions, `meta`
-  and tags as an Ossie model — the mapping yours, in its configuration.
+  and tags as an Ossie model — with what each model reads and its SQL, if you want them; the mapping yours, in its
+  configuration.
 - **Your own context and skills**: instructions, documents and skills (the [Agent Skills](https://agentskills.io)
   format: a folder with a `SKILL.md` and the files it refers to) served to agents as written — from disk, or straight
   from a git repository, kept fresh.

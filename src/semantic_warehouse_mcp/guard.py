@@ -33,6 +33,8 @@ REFUSALS: dict[str, str] = {
     "table_function": "the query reads from a table function that is not allowed",
     "table_not_readable": "the query reads a table that is not readable on this connection",
     "large_table_unbounded": "the query reads a large table without bounding its column",
+    "large_table_unnarrowed": "the query reads a large table without naming the values of a column it is narrowed by",
+    "large_table_joined": "the query reads a large table beside another table in one SELECT",
     "unsupported": "the guard cannot follow the query's structure",
     "engine_parse": "the database's own parser reads the query differently",
 }
@@ -90,6 +92,12 @@ class Refused(Exception):
 class LargeTable:
     table: str  # schema.table, globs allowed
     bound_by: str
+    narrowed_by: tuple[str, ...] = ()  # columns a query must hold to values it names: `= …`, `IN (…)`
+
+    def needs(self) -> str:
+        """What a query over the table must do, in the words of a refusal."""
+        narrowed = " and ".join(self.narrowed_by)
+        return f"bound {self.bound_by}" + (f" and name the values of {narrowed}" if narrowed else "")
 
 
 @dataclass(frozen=True)
@@ -105,6 +113,9 @@ class Rules:
     denied_functions: frozenset[str] = frozenset()  # lower case, globs for a family: dictget*
     # Functions that read a table named in an argument: (lower-case glob, the argument's position).
     table_reading_functions: tuple[tuple[str, int], ...] = ()
+    # Whether an alias the query gives hides a column of the same name in its WHERE (ClickHouse): then a bound or a
+    # narrowing written with that name is the alias's, not the column's.
+    aliases_shadow_columns: bool = False
 
 
 @dataclass(frozen=True)
@@ -147,6 +158,13 @@ def check(sql: str, rules: Rules) -> Checked:
                 f"{node.sql(dialect)} reads a table the guard cannot check; "
                 "write it as x IN (SELECT <column> FROM <table>)",
             )
+        if isinstance(node, exp.In) and (named := _table_in_list(node, statement, rules, dialect)):
+            # ClickHouse reads `x IN (db.table)` as the table, where sqlglot sees a column.
+            raise Refused(
+                "unsupported",
+                f"{node.sql(dialect)} names {named}, which no table of the query goes by; if it is a table, write "
+                f"x IN (SELECT <column> FROM {named})",
+            )
         if isinstance(node, exp.Func) and _denied(node, rules):
             raise Refused("function_denied", f"{_function_name(node)}() reaches outside the database; it is not run")
 
@@ -173,8 +191,8 @@ def check_engine_tables(tables: tuple[tuple[str | None, str, str], ...], checked
         if large is not None and f"{schema}.{table}" not in seen:
             raise Refused(
                 "large_table_unbounded",
-                f"the database reads {schema}.{table} where the guard cannot see its bound; read it in a FROM or JOIN "
-                f"of its own and bound {large.bound_by} there",
+                f"the database reads {schema}.{table} where the guard cannot see its bound; read it alone in a FROM "
+                f"of its own and {large.needs()} there",
             )
 
 
@@ -184,10 +202,15 @@ def is_readable(schema: str, table: str, rules: Rules) -> bool:
     return _matches(_actual(schema, dialect), _actual(table, dialect), rules.readable, dialect)
 
 
+def large_table(schema: str, table: str, rules: Rules) -> LargeTable | None:
+    """What a query over this table must bound and narrow, or None when it is not a large table."""
+    dialect = Dialect.get_or_raise(rules.dialect)
+    return _large(_actual(schema, dialect), _actual(table, dialect), rules, dialect)
+
+
 def large_table_bound(schema: str, table: str, rules: Rules) -> str | None:
     """The column a query over this table must bound, or None when it is not a large table."""
-    dialect = Dialect.get_or_raise(rules.dialect)
-    large = _large(_actual(schema, dialect), _actual(table, dialect), rules, dialect)
+    large = large_table(schema, table, rules)
     return large.bound_by if large else None
 
 
@@ -240,6 +263,7 @@ def _read_scopes(statement: exp.Expression, rules: Rules, dialect: Dialect) -> s
 
     # Every other table node is a table read — wherever sqlglot placed it.
     tables: set[str] = set()
+    shadowed = _shadowing(statement, dialect) if rules.aliases_shadow_columns else {}
     for node in statement.find_all(exp.Table):
         if id(node) in cte_names:
             continue
@@ -255,10 +279,19 @@ def _read_scopes(statement: exp.Expression, rules: Rules, dialect: Dialect) -> s
             raise Refused(
                 "large_table_unbounded",
                 f"{schema}.{table} is a large table read where the guard cannot see its bound; "
-                f"read it in a FROM or JOIN of its own and bound {large.bound_by} there",
+                f"read it alone in a FROM of its own and {large.needs()} there",
             )
         scope, alias, source_count = selected[id(node)]
-        _check_bound(scope, node, alias, source_count, large, f"{schema}.{table}", dialect)
+        if source_count > 1:
+            narrowed = "".join(f" AND {column} = <a value>" for column in large.narrowed_by)
+            raise Refused(
+                "large_table_joined",
+                f"{schema}.{table} is a large table read beside another table in one SELECT: read it alone in a "
+                f"subquery, {large.needs()} there, and join that — e.g. JOIN (SELECT … FROM {schema}.{table} WHERE "
+                f"{large.bound_by} >= <a date>{narrowed}) AS {alias} ON … — a join's ON, or the WHERE, is not applied "
+                "to the reading of a joined table by every database and version",
+            )
+        _check_large(scope, alias, large, f"{schema}.{table}", dialect, shadowed)
     return tables
 
 
@@ -296,10 +329,29 @@ def _tables_named_in_functions(statement: exp.Expression, rules: Rules, dialect:
         if large is not None:
             raise Refused(
                 "large_table_unbounded",
-                f"{_function_name(node)}() reads {schema}.{table}, a large table, without a bound on {large.bound_by}",
+                f"{_function_name(node)}() reads {schema}.{table}, a large table, where a query cannot {large.needs()}",
             )
         tables.add(f"{schema}.{table}")
     return tables
+
+
+def _table_in_list(node: exp.In, statement: exp.Expression, rules: Rules, dialect: Dialect) -> str | None:
+    """A value of `x IN (…)` written `schema.table` for a readable table, its qualifier no table of the query goes by —
+    a table to the engine that reads it so, a column to the guard."""
+    names = {
+        _norm(identifier, dialect)
+        for table in statement.find_all(exp.Table, exp.Subquery)
+        for identifier in (table.args.get("alias") and table.args["alias"].this, table.this)
+        if isinstance(identifier, exp.Identifier)
+    }
+    for value in node.expressions:
+        value = value.unnest()
+        qualifier = value.args.get("table") if isinstance(value, exp.Column) else None
+        if isinstance(qualifier, exp.Identifier) and _norm(qualifier, dialect) not in names:
+            schema, table = _norm(qualifier, dialect), _norm(value.this, dialect)
+            if _matches(schema, table, rules.readable, dialect):
+                return f"{schema}.{table}"
+    return None
 
 
 def _physical_table(node: exp.Table, rules: Rules, dialect: Dialect) -> tuple[str, str]:
@@ -337,42 +389,75 @@ def _large(schema: str, table: str, rules: Rules, dialect: Dialect) -> LargeTabl
     return None
 
 
-def _check_bound(
-    scope: Scope, node: exp.Table, alias: str, source_count: int, large: LargeTable, name: str, dialect: Dialect
+def _check_large(
+    scope: Scope, alias: str, large: LargeTable, name: str, dialect: Dialect, shadowed: dict[str, str]
 ) -> None:
-    """A large table must be bounded from below by its column, in the query that reads it: a top-level AND of its
-    WHERE (or PREWHERE), or of its own JOIN … ON — `col >= …`, `col > …`, `col = …`, `col BETWEEN … AND …`,
-    `col IN (…)`, against values that hold no column and no subquery."""
-    column = _actual(large.bound_by, dialect)
+    """A large table, read alone in its SELECT, must be bounded from below by its column, and held to named values of
+    each column it is narrowed by, in a top-level AND of that SELECT's WHERE (or PREWHERE). A bound is `col >= …`,
+    `col > …`, `col = …`, `col BETWEEN … AND …` or `col IN (…)`; a narrowing, `col = …` or `col IN (…)` — each against
+    values that hold no column and no subquery. Where an alias hides a column (`shadowed`), the bare name is the
+    alias's: only the column qualified by the table counts."""
     qualifier = _norm(exp.to_identifier(alias), dialect)  # the name its columns are qualified by, as selected
 
-    def is_column(expression: exp.Expression) -> bool:
-        expression = expression.unnest()
-        if not isinstance(expression, exp.Column) or _norm(expression.this, dialect) != column:
-            return False
-        table = expression.args.get("table")
-        if table is None:
-            return source_count == 1
-        return _norm(table, dialect) == qualifier
+    def column_named(configured: str):
+        column = _actual(configured, dialect)
+
+        def is_column(expression: exp.Expression) -> bool:
+            expression = expression.unnest()
+            if not isinstance(expression, exp.Column) or _norm(expression.this, dialect) != column:
+                return False
+            table = expression.args.get("table")
+            if table is None:
+                return column not in shadowed
+            return _norm(table, dialect) == qualifier
+
+        return is_column
 
     conditions = [scope.expression.args.get(key) for key in ("where", "prewhere")]
-    if isinstance(node.parent, exp.Join) and node.parent.this is node:
-        conditions.append(node.parent.args.get("on"))
-    for condition in conditions:
-        if condition is None:
-            continue
-        if isinstance(condition, (exp.Where, exp.PreWhere)):
-            condition = condition.this
-        if any(_bounds_from_below(part, is_column) for part in _conjuncts(condition)):
-            return
+    parts = [part for condition in conditions if condition is not None for part in _conjuncts(condition.this)]
 
-    example = f"{alias}.{large.bound_by}" if source_count > 1 else large.bound_by
-    raise Refused(
-        "large_table_unbounded",
-        f"{name} is a large table: bound {large.bound_by} from below in the WHERE of the query that reads it, "
-        f"e.g. WHERE {example} >= <a date> — the column itself, not a function of it"
-        + (f" (with more than one table there, qualify it: {example})" if source_count > 1 else ""),
-    )
+    def hidden(configured: str) -> str:
+        """Why a bound or a narrowing written with the column's bare name does not count, when an alias took it."""
+        column = _actual(configured, dialect)
+        if column not in shadowed:
+            return ""
+        return (
+            f"; the query names {shadowed[column]} AS {configured}, and on this connection an alias hides the column "
+            f"of its name — rename the alias, or qualify the column: {alias}.{configured}"
+        )
+
+    if not any(_bounds_from_below(part, column_named(large.bound_by)) for part in parts):
+        narrowed = f"; name the values of {' and '.join(large.narrowed_by)} there too" if large.narrowed_by else ""
+        raise Refused(
+            "large_table_unbounded",
+            f"{name} is a large table: bound {large.bound_by} from below in the WHERE of the query that reads it, "
+            f"e.g. WHERE {large.bound_by} >= <a date> — the column itself, not a function of it"
+            + hidden(large.bound_by)
+            + narrowed,
+        )
+    for narrowed_by in large.narrowed_by:
+        if not any(_names_values(part, column_named(narrowed_by)) for part in parts):
+            raise Refused(
+                "large_table_unnarrowed",
+                f"{name} is a large table: name the values of {narrowed_by} in the WHERE of the query that reads it, "
+                f"e.g. WHERE {narrowed_by} = <a value>, or {narrowed_by} IN (<values>) — the column itself, not a "
+                "function of it" + hidden(narrowed_by),
+            )
+
+
+def _shadowing(statement: exp.Expression, dialect: Dialect) -> dict[str, str]:
+    """The names a query's aliases give to something other than the column of that name — in a SELECT list, a scalar
+    WITH, an ARRAY JOIN, inside an expression — each with what it names: where an alias hides a column, that name in a
+    WHERE is the alias."""
+    found: dict[str, str] = {}
+    for node in statement.find_all(exp.Alias):
+        name, inner = _norm(node.args["alias"], dialect), node.this.unnest()
+        if not (isinstance(inner, exp.Column) and _norm(inner.this, dialect) == name):
+            found.setdefault(name, inner.sql(dialect))
+    for cte in statement.find_all(exp.CTE):
+        if cte.args.get("scalar"):
+            found.setdefault(_norm(cte.args["alias"].this, dialect), cte.this.sql(dialect))
+    return found
 
 
 def _conjuncts(condition: exp.Expression):
@@ -398,10 +483,23 @@ def _bounds_from_below(condition: exp.Expression, is_column) -> bool:
         return _is_value(condition.left)
     if isinstance(condition, exp.Between) and is_column(condition.this):
         return _is_value(condition.args["low"])
-    if isinstance(condition, exp.In) and is_column(condition.this):
-        values = condition.expressions
-        return bool(values) and condition.args.get("query") is None and all(_is_value(v) for v in values)
-    return False
+    return _in_values(condition, is_column)
+
+
+def _names_values(condition: exp.Expression, is_column) -> bool:
+    """`col = <a value>` or `col IN (<values>)`: the column held to values the query names."""
+    if isinstance(condition, exp.EQ):
+        if is_column(condition.left):
+            return _is_value(condition.right)
+        return is_column(condition.right) and _is_value(condition.left)
+    return _in_values(condition, is_column)
+
+
+def _in_values(condition: exp.Expression, is_column) -> bool:
+    if not isinstance(condition, exp.In) or not is_column(condition.this):
+        return False
+    values = condition.expressions
+    return bool(values) and condition.args.get("query") is None and all(_is_value(v) for v in values)
 
 
 def _is_value(expression: exp.Expression) -> bool:

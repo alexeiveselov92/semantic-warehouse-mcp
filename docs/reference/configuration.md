@@ -60,7 +60,7 @@ Required: a list of at least one connection. Each connection:
 | `engine` | required | the database engine — one of [the supported engines](engines.md) |
 | `description` | | what the database holds, in a sentence; shown to agents by `list_connections` |
 | `readable` | required | the tables a query may read, as `schema.table` patterns — `*` and `?` match within a part: `marts.*`, `*.*`, `raw.events` |
-| `large_tables` | | tables a query must bound, each `{ table, bound_by }` — see below |
+| `large_tables` | | tables a query must bound, each `{ table, bound_by, narrowed_by }` — see below |
 | `limits` | | the limits of one query — see below |
 | `instructions` | | your own rules for agents working with this database, as text — see [Instructions and context](#instructions-and-context) |
 | `context` | | your own documents about this database: files and folders, on disk or [in a repository](#repositories) — see [Instructions and context](#instructions-and-context) |
@@ -83,9 +83,19 @@ Each entry:
 |---|---|---|
 | `table` | required | `schema.table`, globs allowed (`raw.*`); must be covered by `readable` |
 | `bound_by` | required | the column a query over it must bound from below — usually its date |
+| `narrowed_by` | | columns a query over it must hold to values it names (`= …`, `IN (…)`) — a log keeping every kind of event in one table: `[event_name]` |
 
 A query that reads a large table without `bound_by >= …` (or `>`, `=`, `BETWEEN`, `IN`) in the query that reads it is
-refused — [the guard](guard.md#large_table_unbounded) says exactly where the bound goes.
+refused — [the guard](guard.md#large_table_unbounded) says exactly where the bound goes. With `narrowed_by`, it must
+also name the values of each of those columns — [`large_table_unnarrowed`](guard.md#large_table_unnarrowed). A large
+table is read alone in its `SELECT` ([`large_table_joined`](guard.md#large_table_joined)); a view over one — or a table
+that reads it, as ClickHouse's `Merge` and `Distributed` do — is listed itself, or left out of `readable`:
+
+```yaml
+    large_tables:
+      - { table: raw.events, bound_by: event_date }
+      - { table: logs.*, bound_by: event_date, narrowed_by: [event_name] }
+```
 
 ## `limits` (of a connection)
 

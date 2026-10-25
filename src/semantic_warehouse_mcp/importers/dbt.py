@@ -1,9 +1,10 @@
 """The dbt importer: a dbt project's tables, their descriptions, `meta` and tags written as an Apache Ossie document the
 server serves like any model (docs/reference/dbt-importer.md).
 
-What is the team's — which tables, the vendor its `meta` goes under, which of its keys stand for Ossie's own places — is
-the importer's configuration. The code reads only what is dbt's own: descriptions, `meta` and tags as wholes, the
-primary key dbt infers, `relationships` tests, a model's `event_time`."""
+What is the team's — which tables, the vendor its `meta` goes under, which of its keys stand for Ossie's own places, the
+keys dbt's own tags, lineage and SQL are written under — is the importer's configuration. The code reads only what is
+dbt's own: descriptions, `meta` and tags as wholes, the primary key dbt infers, `relationships` tests, a model's
+`event_time`, the tables a model reads and its SQL as written."""
 
 from __future__ import annotations
 
@@ -101,7 +102,13 @@ class ImportFile(_Strict):
     resources: Annotated[list[Literal["model", "seed", "snapshot", "source"]], Field(min_length=1)] = list(RESOURCES)
     vendor_name: Annotated[str, Field(min_length=1)] | None = None
     dbt_tags: Annotated[str, Field(min_length=1)] | None = None
+    dbt_depends_on: Annotated[str, Field(min_length=1)] | None = None
+    dbt_code: Annotated[str, Field(min_length=1)] | None = None
     places: Places = Places()
+
+
+# What of dbt's own each key of the configuration writes into the vendor's data, in the words of a problem.
+DBT_OWN = {"dbt_tags": "dbt's tags", "dbt_depends_on": "the tables it reads", "dbt_code": "its SQL"}
 
 
 # The shape of what is read from a manifest, as dbt writes it — checked first, so an odd one is named, not a crash.
@@ -115,6 +122,10 @@ class _ColumnShape(_Shape):
     tags: list[Any] | None = None
     config: dict[str, Any] | None = None
     quote: bool | None = None
+
+
+class _DependsOnShape(_Shape):
+    nodes: list[str] | None = None
 
 
 class _TableShape(_Shape):
@@ -134,16 +145,14 @@ class _TableShape(_Shape):
     columns: dict[str, _ColumnShape] | None = None
     primary_key: list[Any] | None = None
     version: str | int | float | None = None
+    depends_on: _DependsOnShape | None = None
+    raw_code: str | None = None
 
 
 class _TestMetadataShape(_Shape):
     name: str | None = None
     namespace: str | None = None
     kwargs: dict[str, Any] | None = None
-
-
-class _DependsOnShape(_Shape):
-    nodes: list[str] | None = None
 
 
 class _TestShape(_Shape):
@@ -198,8 +207,13 @@ def load(path: str | pathlib.Path) -> Import:
             problems.append(f"{where}: give one of `meta_key` (with its `value`) or `dbt_tag`")
         elif mark.dbt_tag is not None and "value" in mark.model_fields_set:
             problems.append(f"{where}: `value` goes with `meta_key`, not with `dbt_tag`")
-    if entry.dbt_tags and not entry.vendor_name:
-        problems.append("dbt_tags: needs `vendor_name` — dbt's tags are written into that vendor's data")
+    for key, what in DBT_OWN.items():
+        if getattr(entry, key) and not entry.vendor_name:
+            problems.append(f"{key}: needs `vendor_name` — it writes {what} into that vendor's data")
+    named = [getattr(entry, key) for key in DBT_OWN if getattr(entry, key)]
+    for key in sorted({name for name in named if named.count(name) > 1}):
+        keys = ", ".join(f"`{own}`" for own in DBT_OWN if getattr(entry, own) == key)
+        problems.append(f"{keys}: each names {key!r} — give each its own key")
     base = path.resolve().parent
     manifest, output = base / entry.manifest, base / entry.output
     try:
@@ -249,6 +263,7 @@ def build(imported: Import, manifest: Any) -> Result:
     every = [*manifest["nodes"].values(), *manifest["sources"].values()]
     own = [node for node in every if not project or node.get("package_name") == project]
     home = _home_database(own)
+    by_unique_id = {node["unique_id"]: node for node in every}
     matched = [False] * len(entry.tables)
     datasets: dict[str, dict[str, Any]] = {}
     by_id: dict[str, str] = {}
@@ -260,8 +275,7 @@ def build(imported: Import, manifest: Any) -> Result:
             continue
         if config.get("materialized") == "ephemeral":  # no table: a model dbt writes into the queries that use it
             continue
-        schema, table = node["schema"], node.get("identifier") if resource == "source" else node.get("alias")
-        table = table if isinstance(table, str) else node["name"]
+        schema, table = _relation(node)
         hits = [index for index, pattern in enumerate(entry.tables) if _matches(schema, table, pattern)]
         if not hits:
             continue
@@ -284,7 +298,8 @@ def build(imported: Import, manifest: Any) -> Result:
             problems.append(f"{where}: makes the dataset {name!r}, as another table does — leave one out")
             continue
         source = f"{_identifier(schema)}.{_identifier(table)}"
-        datasets[name] = _dataset(node, name, source, entry, result, problems)
+        reads = _reads(node, by_unique_id, home) if entry.dbt_depends_on else []
+        datasets[name] = _dataset(node, name, source, reads, entry, result, problems)
         by_id[where] = name
         columns_of[where] = node.get("columns") or {}
         result.counts[resource] += 1
@@ -352,6 +367,36 @@ def _home_database(nodes: list[dict[str, Any]]) -> str | None:
     return min(counted, key=lambda database: (-counted[database], database)) if counted else None
 
 
+def _relation(node: dict[str, Any]) -> tuple[str, str]:
+    """The schema and the table a node is in the database: a source's identifier, a model's alias, else its name."""
+    table = node.get("identifier") if node.get("resource_type") == "source" else node.get("alias")
+    return node["schema"], table if isinstance(table, str) else node["name"]
+
+
+def _reads(node: dict[str, Any], by_unique_id: dict[str, dict[str, Any]], home: str | None) -> list[str]:
+    """The tables a model or a snapshot reads, as dbt's `depends_on` names them: each `schema.table` — with its database
+    first when it is not the project's — and through an ephemeral model, the tables that one reads."""
+    found: set[str] = set()
+    seen: set[str] = set()
+    waiting = list((node.get("depends_on") or {}).get("nodes") or [])
+    while waiting:
+        unique_id = waiting.pop()
+        if unique_id in seen:
+            continue
+        seen.add(unique_id)
+        other = by_unique_id.get(unique_id)
+        if other is None or other.get("resource_type") not in RESOURCES:
+            continue
+        if (other.get("config") or {}).get("materialized") == "ephemeral":  # written into this one's query
+            waiting.extend((other.get("depends_on") or {}).get("nodes") or [])
+            continue
+        schema, table = _relation(other)
+        name = f"{_identifier(schema)}.{_identifier(table)}"
+        database = other.get("database")
+        found.add(f"{_identifier(database)}.{name}" if database and home and database != home else name)
+    return sorted(found)
+
+
 def _matches(schema: str, table: str, pattern: str) -> bool:
     pattern_schema, _, pattern_table = pattern.partition(".")
     return fnmatchcase(schema, pattern_schema) and fnmatchcase(table, pattern_table)
@@ -366,7 +411,13 @@ def _dataset_name(node: dict[str, Any]) -> str:
 
 
 def _dataset(
-    node: dict[str, Any], name: str, source: str, entry: ImportFile, result: Result, problems: list[str]
+    node: dict[str, Any],
+    name: str,
+    source: str,
+    reads: list[str],
+    entry: ImportFile,
+    result: Result,
+    problems: list[str],
 ) -> dict[str, Any]:
     where = node["unique_id"]
     columns = node.get("columns") or {}
@@ -394,7 +445,7 @@ def _dataset(
         if column.get("description"):
             field_["description"] = column["description"]
         place = f"{where} → columns → {column_name}"
-        extensions = _extensions(column_meta, column_tags, entry, place, result, problems)
+        extensions = _extensions(column_meta, {"dbt_tags": column_tags}, entry, place, result, problems)
         if extensions:
             field_["custom_extensions"] = extensions
             result.counts["field with data"] += 1
@@ -402,7 +453,9 @@ def _dataset(
         result.counts["field"] += 1
     if fields:
         dataset["fields"] = fields
-    extensions = _extensions(meta, _tags(node), entry, where, result, problems)
+    code = node.get("raw_code") if entry.dbt_code else None
+    own = {"dbt_tags": _tags(node), "dbt_depends_on": reads, "dbt_code": code}
+    extensions = _extensions(meta, own, entry, where, result, problems)
     if extensions:
         dataset["custom_extensions"] = extensions
         result.counts["dataset with data"] += 1
@@ -425,19 +478,23 @@ def _tags(node: dict[str, Any]) -> list[str]:
 
 
 def _extensions(
-    meta: dict[str, Any], tags: list[str], entry: ImportFile, where: str, result: Result, problems: list[str]
+    meta: dict[str, Any], own: dict[str, Any], entry: ImportFile, where: str, result: Result, problems: list[str]
 ) -> list[dict[str, Any]]:
-    """The vendor's data: the meta as written, dbt's tags under the key `dbt_tags` names."""
+    """The vendor's data: the meta as written, and what is dbt's own — its tags, the tables it reads, its SQL — each
+    under the key the configuration names for it (`dbt_tags`, `dbt_depends_on`, `dbt_code`), when it has any."""
     if found := _value_problem(meta):
         place, problem = found
         problems.append(f"{where} → meta{''.join(f' → {step}' for step in place)}: {problem}")
         return []
     data = copy.deepcopy(meta)
-    if entry.dbt_tags and tags:
-        if entry.dbt_tags in data:
-            said = f"holds {entry.dbt_tags!r} already, the key `dbt_tags` writes dbt's tags as"
-            problems.append(f"{where} → meta: {said}")
-        data[entry.dbt_tags] = list(tags)
+    for setting, value in own.items():
+        key = getattr(entry, setting)
+        if not key or not value:
+            continue
+        if key in meta:
+            problems.append(f"{where} → meta: holds {key!r} already, the key `{setting}` writes {DBT_OWN[setting]} as")
+        data[key] = copy.deepcopy(value)
+        result.counts[setting] += 1
     if not data:
         return []
     if not entry.vendor_name:
@@ -678,6 +735,14 @@ def summary(imported: Import, result: Result) -> list[str]:
             f"{imported.entry.vendor_name}'s data on {counts['dataset with data']} datasets and "
             f"{counts['field with data']} fields"
         )
+    written = {"dbt_depends_on": "the tables they read", "dbt_code": "their SQL"}
+    said = [
+        f"{counts[setting]} tables with {what}, under {getattr(imported.entry, setting)!r}"
+        for setting, what in written.items()
+        if getattr(imported.entry, setting)
+    ]
+    if said:
+        lines.append("; ".join(said))
     left_out = {
         "meta left out": "the meta of {} tables and columns — no `vendor_name` to hold it",
         "table of another database": "{} tables of another database than the project's — a connection reads its own",
