@@ -16,6 +16,8 @@ How the project is built and planned is not here: that is `dev/` (design, plan, 
     declared in a vocabulary, every check at start.
   - [The dbt importer](reference/dbt-importer.md) — a dbt project's tables, descriptions, `meta` and tags as an Ossie
     document, and its configuration.
+  - [The database importer](reference/database-importer.md) — a draft of an Ossie document from a database's own catalog:
+    its tables, columns and comments, for a database no dbt project describes.
   - [The guard](reference/guard.md) — how a query is read, every refusal and why, the limits.
   - [Engines](reference/engines.md) — the databases it reads, and how each is kept read-only.
   - [Running it](reference/running.md) — the command, stdio or HTTP for a team (its token, the health check), the

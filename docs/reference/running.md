@@ -15,6 +15,7 @@ holds.
 semantic-warehouse-mcp --config <file> [--check [--offline]]
 semantic-warehouse-mcp --config <file> --http [--host 127.0.0.1] [--port 8000] [--path /mcp] [--token-env NAME]
 semantic-warehouse-mcp import-dbt <configuration> [--strict] [--check]     # the dbt importer: its own page
+semantic-warehouse-mcp import-database --config <file> --output <file> …   # the database importer: its own page
 ```
 
 | Option | Default | What |
@@ -28,7 +29,8 @@ semantic-warehouse-mcp import-dbt <configuration> [--strict] [--check]     # the
 | `--path` | `/mcp` | with `--http`: the MCP endpoint's path |
 | `--token-env` | | with `--http`: the environment variable holding the token every request must carry. **Required** unless `--host` is `127.0.0.1`, `localhost` or `::1` |
 
-The [dbt importer](dbt-importer.md) is a command of its own, `import-dbt`.
+The [dbt importer](dbt-importer.md) and the [database importer](database-importer.md) are commands of their own,
+`import-dbt` and `import-database`.
 
 ## Over stdio — one person's agent
 

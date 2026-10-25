@@ -28,6 +28,7 @@ const PAGES = [
   { src: 'docs/reference/configuration.md', dest: 'reference/configuration.md' },
   { src: 'docs/reference/semantic-models.md', dest: 'reference/semantic-models.md' },
   { src: 'docs/reference/dbt-importer.md', dest: 'reference/dbt-importer.md' },
+  { src: 'docs/reference/database-importer.md', dest: 'reference/database-importer.md' },
   { src: 'docs/reference/guard.md', dest: 'reference/guard.md' },
   { src: 'docs/reference/engines.md', dest: 'reference/engines.md' },
   { src: 'docs/reference/running.md', dest: 'reference/running.md' },

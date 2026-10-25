@@ -319,7 +319,7 @@ def build(imported: Import, manifest: Any) -> Result:
         if name in datasets:
             problems.append(f"{where}: makes the dataset {name!r}, as another table does — leave one out")
             continue
-        source = f"{_identifier(schema)}.{_identifier(table)}"
+        source = f"{identifier(schema)}.{identifier(table)}"
         reads = _reads(node, by_unique_id, home) if entry.dbt_depends_on else []
         datasets[name] = _dataset(node, name, source, reads, entry, result, problems)
         by_id[where] = name
@@ -419,9 +419,9 @@ def _reads(node: dict[str, Any], by_unique_id: dict[str, dict[str, Any]], home: 
             waiting.extend((other.get("depends_on") or {}).get("nodes") or [])
             continue
         schema, table = _relation(other)
-        name = f"{_identifier(schema)}.{_identifier(table)}"
+        name = f"{identifier(schema)}.{identifier(table)}"
         database = other.get("database")
-        found.add(f"{_identifier(database)}.{name}" if database and home and database != home else name)
+        found.add(f"{identifier(database)}.{name}" if database and home and database != home else name)
     return sorted(found)
 
 
@@ -526,7 +526,7 @@ def _dataset(
     fields = []
     for column_name, column in columns.items():
         column_meta, column_tags = _meta(column), _tags(column)
-        sql = _identifier(column_name, quote=bool(column.get("quote")))
+        sql = identifier(column_name, quote=bool(column.get("quote")))
         field_ = {"name": column_name, "expression": {"dialects": [{"dialect": "ANSI_SQL", "expression": sql}]}}
         if (
             column_name == event_time
@@ -724,7 +724,7 @@ def _named(text: Any, refs: dict[str, str], sources: dict[tuple[str, str], str])
     return None
 
 
-def _identifier(name: str, quote: bool = False) -> str:
+def identifier(name: str, quote: bool = False) -> str:
     """A name as SQL reads it: as it is when it reads back as that one name, else in double quotes."""
     if not quote and PLAIN.match(name):
         try:
@@ -782,19 +782,24 @@ def render(imported: Import, result: Result, strict: bool = False) -> str:
         f"# Written by semantic-warehouse-mcp import-dbt from {imported.entry.manifest}{dbt}.\n"
         "# Edit the dbt project or the importer's configuration and import again: an edit here is overwritten.\n"
     )
+    return write_document(document, header, imported.source, imported.entry.output)
+
+
+def write_document(document: dict[str, Any], header: str, source: str, output: str) -> str:
+    """An Ossie document as the file an importer writes: its YAML read back exactly as built, and checked as the server
+    checks a model — else ImportProblem, naming where."""
     text = header + yaml.dump(document, Dumper=_Writer, sort_keys=False, allow_unicode=True, width=120)
     try:
         read_back = files.read_yaml(text)
     except yaml.YAMLError as error:
         problem = f"the document written cannot be read back: {files.yaml_problem(error)} — please report it"
-        raise ImportProblem(imported.source, [problem]) from error
+        raise ImportProblem(source, [problem]) from error
     if (place := _difference(document, read_back)) is not None:
         where = files.location(place, document)
-        raise ImportProblem(imported.source, [f"the document written would read back otherwise at {where} — please "
-                                              "report it"])  # fmt: skip
-    _, problems = semantic.check(read_back, imported.entry.output)
+        raise ImportProblem(source, [f"the document written would read back otherwise at {where} — please report it"])
+    _, problems = semantic.check(read_back, output)
     if problems:
-        raise ImportProblem(imported.source, problems)
+        raise ImportProblem(source, problems)
     return text
 
 

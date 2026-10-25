@@ -23,6 +23,7 @@ export default defineConfig({
             { label: 'Configuration', link: '/reference/configuration/' },
             { label: 'Semantic models and vocabularies', link: '/reference/semantic-models/' },
             { label: 'The dbt importer', link: '/reference/dbt-importer/' },
+            { label: 'The database importer', link: '/reference/database-importer/' },
             { label: 'The guard', link: '/reference/guard/' },
             { label: 'Engines', link: '/reference/engines/' },
             { label: 'Running it', link: '/reference/running/' },

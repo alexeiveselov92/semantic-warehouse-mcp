@@ -24,6 +24,8 @@ it lets agents find the right tables, read what they mean and query them, safely
 - **An importer from dbt**: `semantic-warehouse-mcp import-dbt` writes your dbt project's tables, descriptions, `meta`
   and tags as an Ossie model — with what each model reads and its SQL, if you want them; the tables chosen by name or
   as dbt selects them (`tag:daily`, `path:models/marts`); the mapping yours, in its configuration.
+- **A draft from the database itself**, where no dbt project describes it: `semantic-warehouse-mcp import-database`
+  writes its readable tables, columns and comments as an Ossie model for you, or an agent, to give meaning to.
 - **Your own context and skills**: instructions, documents and skills (the [Agent Skills](https://agentskills.io)
   format: a folder with a `SKILL.md` and the files it refers to) served to agents as written — from disk, or straight
   from a git repository, kept fresh.

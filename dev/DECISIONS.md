@@ -488,3 +488,16 @@ them, list items for any. Not read: graph operators (`+`, `@`) — what a model 
 to describe — and methods that need a run's state (`state:`, `result:`); refused before the manifest is read, rather
 than half-read. An item that selects nothing is refused, as a pattern of `tables` is: a misspelt tag would otherwise
 import the whole project, or leave nothing out, silently. Without them, nothing changes.
+
+## 2026-10-25 · A draft of a semantic model from the database itself
+
+**The author**: the library is for any database, also where no dbt project exists — a production PostgreSQL, whose
+model an agent would write from the tables it holds; dbt and its tags and paths are options. The server already serves
+such a database whole without a model (`list_tables`, `describe_table`); what was missing is the model's starting
+point. Decided (the agent, at the author's "do it now"): `semantic-warehouse-mcp import-database` drafts an Ossie
+document from a connection's own catalog — one dataset per table or view `readable` lets agents read, one field per
+column, the database's comments as descriptions, a date or time type as a time dimension — and nothing else: no
+guessed meaning, no primary keys or relationships the catalog does not hold as such. Its model's meaning is the
+team's to write, by hand or by an agent through this server. The connection is reached without its semantic models,
+context and skills, so a configuration may name the draft before it exists. An existing file is never overwritten
+unless told: a draft is meant to be edited. A command of its own beside `import-dbt`, not a tool: it writes a file.

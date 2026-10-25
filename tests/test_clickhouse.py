@@ -10,10 +10,11 @@ from clickhouse_server import admin, clickhouse_url  # noqa: F401 — the fixtur
 from conftest import write_config
 from mcp import Client
 
+from semantic_warehouse_mcp import files
 from semantic_warehouse_mcp.adapters import AdapterError, TimedOut
 from semantic_warehouse_mcp.adapters.clickhouse import ClickHouseAdapter, ClickHouseSettings
 from semantic_warehouse_mcp.config import ConfigError, load
-from semantic_warehouse_mcp.server import build_server
+from semantic_warehouse_mcp.server import build_server, main
 
 CONFIG = """
 connections:
@@ -392,3 +393,21 @@ async def test_a_semantic_model_over_clickhouse(clickhouse_url, as_user, tmp_pat
     with pytest.raises(ConfigError) as error:
         load(write_config(tmp_path, config))
     assert error.value.problems[0].endswith("source: there is no table or view swm_marts.nothing on the connection")
+
+
+def test_a_draft_of_the_model_is_written_from_the_databases_catalog(clickhouse_url, as_user, tmp_path):  # noqa: F811
+    """A database no dbt project describes: its tables, their comments and columns, read by `import-database`."""
+    path = write_config(tmp_path, CONFIG.format(url=clickhouse_url))
+    draft = tmp_path / "draft.yaml"
+    main(["import-database", "--config", str(path), "--output", str(draft), "--tables", "swm_marts.orders"])
+    (orders,) = files.read_yaml(draft.read_text(encoding="utf-8"))["datasets"]
+    assert orders["source"] == "swm_marts.orders" and orders["description"] == "One row per paid order."
+    fields = {field["name"]: field for field in orders["fields"]}
+    assert fields["amount"]["description"] == "Paid, before refunds."
+    assert fields["order_date"]["dimension"] == {"is_time": True} and "dimension" not in fields["note"]
+    load(
+        write_config(
+            tmp_path,
+            CONFIG.format(url=clickhouse_url).replace("    limits:", "    semantic_models: [draft.yaml]\n    limits:"),
+        )
+    )

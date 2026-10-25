@@ -13,7 +13,7 @@ from semantic_warehouse_mcp import server
 from semantic_warehouse_mcp.adapters import ENGINES, adapter_class
 from semantic_warehouse_mcp.config import ConfigFile
 from semantic_warehouse_mcp.guard import REFUSALS
-from semantic_warehouse_mcp.importers import dbt
+from semantic_warehouse_mcp.importers import database, dbt
 from semantic_warehouse_mcp.semantic import SCHEMA_FILES
 from semantic_warehouse_mcp.server import build_server
 from semantic_warehouse_mcp.vocabulary import KeyEntry, VocabularyFile
@@ -76,6 +76,13 @@ def test_every_importer_key_and_option_has_its_entry_in_the_guide():
     options = re.findall(r'add_argument\("(--[a-z-]+)"', inspect.getsource(dbt.main))
     missing = [option for option in options if f"| `{option}` |" not in page]
     assert options and not missing, f"options of import-dbt without an entry in the importer's page: {missing}"
+
+
+def test_every_option_of_the_database_importer_has_its_entry_in_the_guide():
+    page = (DOCS / "reference" / "database-importer.md").read_text(encoding="utf-8")
+    options = re.findall(r'add_argument\("(--[a-z-]+)"', inspect.getsource(database.main))
+    missing = [option for option in options if f"| `{option}` |" not in page]
+    assert options and not missing, f"options of import-database without an entry in its page: {missing}"
 
 
 def test_every_option_of_the_command_has_its_entry_in_the_guide():

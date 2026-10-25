@@ -11,11 +11,12 @@ from conftest import write_config
 from mcp import Client
 from postgres_server import postgres  # noqa: F401 — the fixture
 
+from semantic_warehouse_mcp import files
 from semantic_warehouse_mcp.adapters import AdapterError, TimedOut
 from semantic_warehouse_mcp.adapters import postgres as postgres_adapter
 from semantic_warehouse_mcp.adapters.postgres import PostgresAdapter, PostgresSettings
 from semantic_warehouse_mcp.config import ConfigError, load
-from semantic_warehouse_mcp.server import build_server
+from semantic_warehouse_mcp.server import build_server, main
 
 pytestmark = pytest.mark.anyio
 
@@ -354,3 +355,17 @@ def test_a_wrong_engine_key_is_named(postgres, as_user, tmp_path):  # noqa: F811
     )
     with pytest.raises(ConfigError, match="ssl_mode: unknown key — did you mean 'sslmode'"):
         load(write_config(tmp_path, body))
+
+
+def test_a_draft_of_the_model_is_written_from_the_databases_catalog(postgres, as_user, tmp_path, capsys):  # noqa: F811
+    """A database no dbt project describes: its tables, their comments and columns, read by `import-database`."""
+    path = write_config(tmp_path, CONFIG.format(host=postgres.host, port=postgres.port, database=postgres.database))
+    draft = tmp_path / "draft.yaml"
+    main(["import-database", "--config", str(path), "--output", str(draft), "--tables", "swm_marts.orders"])
+    (orders,) = files.read_yaml(draft.read_text(encoding="utf-8"))["datasets"]
+    assert orders["source"] == "swm_marts.orders" and orders["description"] == "One row per paid order."
+    fields = {field["name"]: field for field in orders["fields"]}
+    assert fields["amount"]["description"] == "Paid, before refunds."
+    assert fields["order_date"]["dimension"] == {"is_time": True} and "dimension" not in fields["note"]
+    served = CONFIG.replace("    limits:", f"    semantic_models: [{draft.name}]\n    limits:")
+    load(write_config(tmp_path, served.format(host=postgres.host, port=postgres.port, database=postgres.database)))

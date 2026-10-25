@@ -73,6 +73,9 @@ The engine production work runs on (the author, 2026-10-24) — moved up from "t
       through them.
 - [x] Beyond the plan, from a company's use (2026-10-25): the importer chooses tables as dbt selects them (`select`,
       `exclude` — `tag:`, `path:`, `config.<key>:`, …), so a model holds what the project builds. ✅ 2026-10-25 — 0.7.0.
+- [x] Beyond the plan, at the author's word (2026-10-25): a draft of a model from the database's own catalog, for a
+      database no dbt project describes (`import-database`). ✅ 2026-10-25 — 0.8.0; DuckDB, PostgreSQL, ClickHouse
+      tested; a real warehouse drafted and bound.
 
 ## Milestone 4. The docs site — 1 session (built the same sitting as milestone 3's end)
 

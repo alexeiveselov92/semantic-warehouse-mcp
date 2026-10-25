@@ -4,6 +4,9 @@ One line per change, newest on top: `YYYY-MM-DD — what was done`.
 
 ---
 
+2026-10-25 — **0.8.0**: a draft of a semantic model from the database itself, for a database no dbt project describes
+2026-10-25 — `semantic-warehouse-mcp import-database`: a draft Ossie document from a connection's own catalog — its readable tables and views, their columns, the database's comments as descriptions, date and time columns marked by their type; nothing guessed, nothing `readable` leaves out, an edited draft never overwritten (`--overwrite`); the connection reached without its semantic models, so the configuration may already name the draft; `--tables`, `--fields described`; measured on a real warehouse — 263 tables, 5,776 columns drafted in 28 s and bound to the live database
+2026-10-25 — the dbt importer's document writer shared with the database importer (`write_document`)
 2026-10-25 — **0.7.0**: the dbt importer chooses tables as dbt selects them
 2026-10-25 — the dbt importer: `select` and `exclude` take dbt's own selection — `tag:`, `path:`, `config.<key>:`, `source:`, `resource_type:`, `fqn:` or a bare name or path, criteria joined by commas, `*` and `?` — so a model holds what the project builds (a scheduler's `--select tag:daily`), not models never built or gone stale; graph operators and other methods refused before the manifest is read, an item selecting nothing refused, what they leave out counted
 2026-10-25 — **0.6.1**: ClickHouse before 24.3 — a `GROUP BY` over an `ALIAS` column answered; the engine's reading hardened
