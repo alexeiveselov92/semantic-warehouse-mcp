@@ -4,6 +4,8 @@ One line per change, newest on top: `YYYY-MM-DD — what was done`.
 
 ---
 
+2026-10-25 — **0.5.0**: lists for large models, ranked search
+2026-10-25 — lists for large models: a `list_datasets` / `list_metrics` too long for one answer names every item only, by model (`compact`) — measured on two real dbt-built models of 427 and 715 tables (~4 MB of YAML each): every table named in 15 and 21 thousand characters, where 77 and 111 were shown before; a search lists the closest first (words in the name, then in the description, then anywhere)
 2026-10-25 — BigQuery and Snowflake put off (the author: enough databases for now); milestone 5 keeps the self-check at start
 2026-10-25 — **0.4.0**: MySQL (the agent, at the author's word, so the site promises what PyPI has)
 2026-10-25 — MySQL refuted by a second reader: on a server with `NO_BACKSLASH_ESCAPES` a string ended where the guard did not see it end, and a secret row read by its key ran past the guard and the plan — every session now drops the `sql_mode` modes that change how text is read (`NO_BACKSLASH_ESCAPES`, `ANSI_QUOTES`, `ANSI`), and `check()` refuses one that keeps them; `UUID_SHORT` and `SQL_CALC_FOUND_ROWS` refused

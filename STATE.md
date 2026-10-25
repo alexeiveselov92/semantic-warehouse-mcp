@@ -4,8 +4,9 @@
 
 **Updated:** 25 October 2026.
 
-**Released: 0.4.0, pre-alpha** — on PyPI and GHCR (`ghcr.io/alexeiveselov92/semantic-warehouse-mcp:0.4.0`): MySQL;
-0.3.0 brought PostgreSQL and drivers as extras, 0.2.0 skills and repositories. **The site is live at
+**Released: 0.5.0, pre-alpha** — on PyPI and GHCR (`ghcr.io/alexeiveselov92/semantic-warehouse-mcp:0.5.0`): lists for
+large models (every table named when a list does not fit), ranked search; 0.4.0 brought MySQL, 0.3.0 PostgreSQL and
+drivers as extras, 0.2.0 skills and repositories. **The site is live at
 https://swm.pipelab.dev**, redeployed on every push that changes `docs/` or `website/`. Milestones 0–4 done.
 **Current: milestone 5, the other databases** — PostgreSQL and MySQL done; BigQuery and Snowflake put off by the
 author ("enough databases for now"); the self-check at start remains.
@@ -29,13 +30,15 @@ author ("enough databases for now"); the self-check at start remains.
   environment hold every driver. A user who may read beyond `readable` is noted at start (a function in the database
   reads with its grants).
 - **The configuration, semantic models (Ossie), vocabularies, the dbt importer, skills, repositories, the guard** — as
-  before. **The site** (`website/`): a landing page of the server's real answers.
+  before. **Large models**: an agent never reads a model whole; `list_datasets` / `list_metrics` too long for one
+  answer name every item by model (`compact`) — measured on two real dbt-built models (427 and 715 tables, ~4 MB of
+  YAML each): every table named in 15 / 21 thousand characters; a search lists the closest first. **The site** (`website/`): a landing page of the server's real answers.
 - **Examples**: the made-up shop in DuckDB, or loaded into ClickHouse, PostgreSQL or MySQL (`make_shop.py --clickhouse`
   / `--postgres` / `--mysql`, `examples/config.<engine>.example.yaml`).
 
 ## How it was verified
 
-- 675 tests pass, none skipped (real ClickHouse, PostgreSQL 17 and MySQL 8.4 in containers; a git server on loopback);
+- 678 tests pass, none skipped (real ClickHouse, PostgreSQL 17 and MySQL 8.4 in containers; a git server on loopback);
   ruff clean; CI runs all three servers as services.
 - MySQL refuted by a second reader: 1 high — on a server with `NO_BACKSLASH_ESCAPES` a string ended where the guard
   did not see it end and a secret row ran past the guard and the plan — closed at the source (the session's

@@ -393,12 +393,61 @@ async def test_every_semantic_answer_stays_within_the_limit(shop):
     assert answer["note"].endswith("Long values were cut to fit the answer; each cut one ends in ….")
 
 
-async def test_a_lists_vocabulary_is_of_the_items_it_shows(shop):
+async def test_a_list_that_does_not_fit_names_every_item_by_its_model(shop):
+    """The map of what there is, in one answer: a list too long in full names each dataset only, never a few in full."""
     vocabulary = VOCABULARY.replace("description: What it is about.", f"description: {'y' * 3000}")
     config = shop(vocabulary=vocabulary, config=CONFIG + "limits: {answer_characters: 1500}\n")
-    answer, _ = await call(config, "list_datasets", search="marts")
-    assert answer["datasets"] == [] and "vocabulary" not in answer  # orders, the first, brings 3000 characters
-    assert answer["note"].startswith("Only the first 0 of 2 datasets fit in the answer (1500 characters).")
+    answer, _ = await call(config, "list_datasets")
+    assert answer == {
+        "compact": True,
+        "note": "The full list of 3 datasets does not fit in the answer (1500 characters): each is named only. Give "
+        "`search` for their descriptions, or describe_dataset for one.",
+        "datasets": [{"connection": "shop", "model": "shop", "names": ["orders", "customers", "events"]}],
+    }  # orders, the first, brings its vocabulary's 3000 characters: in full, not one would fit
+    synonyms = ", ".join(f"a_synonym_of_revenue_{number}" for number in range(60))
+    config = shop(("ai_context: {synonyms: [sales]}", f"ai_context: {{synonyms: [{synonyms}]}}"),
+                  config=CONFIG + "limits: {answer_characters: 1000}\n")  # fmt: skip
+    answer, _ = await call(config, "list_metrics")
+    assert answer["compact"] is True  # a dataset's own metric named with its dataset
+    assert answer["metrics"] == [{"connection": "shop", "model": "shop", "names": ["revenue", "orders.order_count"]}]
+
+
+async def test_names_that_do_not_fit_either_are_cut_and_said(shop):
+    many = "".join(
+        f"  - name: a_dataset_with_a_rather_long_name_{number:03}\n    source: marts.orders\n" for number in range(120)
+    )
+    config = shop(("  - name: customers\n", many + "  - name: customers\n"),
+                  config=CONFIG + "limits: {answer_characters: 1000}\n")  # fmt: skip
+    answer, _ = await call(config, "list_datasets")
+    assert len(answers.dumps(answer)) <= 1000
+    assert answer["compact"] is True and answer["truncated"] is True
+    shown = len(answer["datasets"][0]["names"])
+    assert 0 < shown < 123
+    assert answer["note"].startswith(f"The full list of 123 datasets does not fit in the answer (1000 characters), nor "
+                                     f"do all their names: only {shown} are named.")  # fmt: skip
+
+
+async def test_a_search_lists_the_closest_first(shop):
+    config = shop(
+        ("  - name: customers\n    source: marts.customers\n",
+         "  - name: customers\n    source: marts.customers\n    description: Customers, with their refund requests.\n"),
+        ("  - name: events\n", "  - name: refund_events\n"),
+    )  # fmt: skip
+    answer, _ = await call(config, "list_datasets", search="REFUND")
+    # in its name, then in its description, then in a field's description — not the model's order
+    assert [item["dataset"] for item in answer["datasets"]] == ["refund_events", "customers", "orders"]
+    answer, _ = await call(config, "list_metrics", search="order")
+    assert [item["metric"] for item in answer["metrics"]] == ["order_count", "revenue"]
+
+
+def test_how_closely_a_node_matches():
+    node = {"name": "paid_orders", "description": "Orders paid by card.", "fields": [{"name": "refund_reason"}]}
+    assert semantic.rank(node, []) == (0, 0)
+    assert semantic.rank(node, ["PAID", "orders"]) == (0, -2)
+    assert semantic.rank(node, ["card"]) == (1, 0)
+    assert semantic.rank(node, ["paid", "card"]) == (1, -1)  # one word in its name: before (1, 0)
+    assert semantic.rank(node, ["refund"]) == (2, 0)
+    assert semantic.rank(node, ["refund", "nowhere"]) is None
 
 
 def test_a_password_in_a_model_is_never_repeated(shop):

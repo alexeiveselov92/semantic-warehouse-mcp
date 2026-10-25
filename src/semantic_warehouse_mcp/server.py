@@ -345,32 +345,61 @@ def build_server(config: Config | None = None) -> MCPServer:
             item["custom_extensions"] = shown
         return item
 
-    def listing(key: str, items: list[dict], hint: str) -> str:
+    def listing(key: str, kind: str, items: list[dict], searched: bool, describer: str) -> str:
+        """A list of datasets or metrics: in full when it fits; else every one by name only, grouped by its model —
+        the map of what there is, in one answer — and, past that too, the first names that fit."""
         answer: dict = {}
         if not any(c.models for c in connections.values()):
             answer["note"] = "No connection has a semantic model; list_tables and describe_table show the tables."
-
-        def vocabulary_of(shown: list[dict]) -> dict:
-            said = definitions(shown)
-            return {"vocabulary": said} if said else {}
-
-        return answers.render(answer, key, items, answer_characters, hint, beside=vocabulary_of)
+        said = definitions(items)
+        full = {**answer, **({"vocabulary": said} if said else {}), key: items}
+        if len(answers.dumps(full)) <= answer_characters:
+            return answers.dumps(full)
+        groups: dict[tuple[str, str], list[str]] = {}
+        for item in items:
+            name = item[kind] if "dataset" not in item or kind == "dataset" else f"{item['dataset']}.{item[kind]}"
+            groups.setdefault((item["connection"], item["model"]), []).append(name)
+        named = [{"connection": c, "model": m, "names": names} for (c, m), names in groups.items()]
+        order = ", the closest to `search` first" if searched else ""
+        compact = {
+            "compact": True,
+            "note": f"The full list of {len(items)} {key} does not fit in the answer ({answer_characters} characters): "
+            f"each is named only{order}. Give `search` for their descriptions, or {describer} for one.",
+            key: named,
+        }
+        shown = len(items)
+        while len(answers.dumps(compact)) > answer_characters and shown:
+            longest = max(named, key=lambda group: len(group["names"]))
+            shown -= len(longest["names"]) - len(longest["names"]) * 9 // 10
+            longest["names"] = longest["names"][: len(longest["names"]) * 9 // 10]
+            compact["truncated"] = True
+            compact["note"] = (
+                f"The full list of {len(items)} {key} does not fit in the answer ({answer_characters} characters), "
+                f"nor do all their names: only {shown} are named{order}. Give `search` or `connection` to list fewer."
+            )
+        return answers.dumps(compact)
 
     @server.tool(annotations=READ_ONLY, structured_output=False)
     def list_datasets(connection: str | None = None, search: str | None = None) -> str:
         """The datasets of the semantic models: the tables the team described for agents. For each: its connection
         and model, its name, its `source` table, the first line of its description (`…` when there is more), its
-        synonyms, and the team's own metadata shown in lists — with what each value means in `vocabulary`. `search`
-        keeps the datasets holding every one of its words, in any case, anywhere in the dataset as written (name,
-        description, fields, own metadata). Read one in full with `describe_dataset`."""
+        synonyms, and the team's own metadata shown in lists — with what each value means in `vocabulary`. When they
+        do not all fit, every dataset is named only, by model (`compact`): the map of what there is. `search` keeps the
+        datasets holding every one of its words, in any case, anywhere in the dataset as written (name, description,
+        fields, own metadata) — those with the words in their name first, then in their description, then elsewhere.
+        Read one in full with `describe_dataset`."""
         words = search.split() if search else []
-        items = [
-            summary(chosen, model, dataset, "dataset", source=dataset["source"])
-            for chosen, model in models_of(connection, None)
-            for dataset in model.document["datasets"]
-            if semantic.matches(dataset, words)
+        found = [
+            (rank, index, summary(chosen, model, dataset, "dataset", source=dataset["source"]))
+            for index, (chosen, model, dataset) in enumerate(
+                (chosen, model, dataset)
+                for chosen, model in models_of(connection, None)
+                for dataset in model.document["datasets"]
+            )
+            if (rank := semantic.rank(dataset, words)) is not None
         ]
-        return listing("datasets", items, "Give `search` or `connection` to list fewer.")
+        items = [item for _, _, item in sorted(found, key=lambda entry: entry[:2])]
+        return listing("datasets", "dataset", items, bool(words), "describe_dataset")
 
     @server.tool(annotations=READ_ONLY, structured_output=False)
     def describe_dataset(dataset: str, connection: str | None = None, model: str | None = None) -> str:
@@ -436,22 +465,20 @@ def build_server(config: Config | None = None) -> MCPServer:
         its name, its `dataset` when it is a dataset's own metric, the first line of its description (`…` when there
         is more), its synonyms, and the team's own metadata shown in lists — with what each value means in
         `vocabulary`. `search` keeps the metrics holding every one of its words, in any case, anywhere in the metric as
-        written. Read one in full — its expression — with `describe_metric`."""
+        written — those with the words in their name first, then in their description, then elsewhere. When they do not
+        all fit, every metric is named only, by model (`compact`). Read one in full — its expression — with
+        `describe_metric`."""
         words = search.split() if search else []
-        items = []
+        found = []
         for chosen, model in models_of(connection, None):
-            items.extend(
-                summary(chosen, model, metric, "metric")
-                for metric in model.document.get("metrics", [])
-                if semantic.matches(metric, words)
-            )
-            items.extend(
-                summary(chosen, model, metric, "metric", dataset=dataset["name"])
-                for dataset in model.document["datasets"]
-                for metric in dataset.get("metrics", [])
-                if semantic.matches(metric, words)
-            )
-        return listing("metrics", items, "Give `search` or `connection` to list fewer.")
+            for metric in model.document.get("metrics", []):
+                found.append((semantic.rank(metric, words), len(found), summary(chosen, model, metric, "metric")))
+            for dataset in model.document["datasets"]:
+                for metric in dataset.get("metrics", []):
+                    item = summary(chosen, model, metric, "metric", dataset=dataset["name"])
+                    found.append((semantic.rank(metric, words), len(found), item))
+        items = [item for rank, _, item in sorted((e for e in found if e[0] is not None), key=lambda e: e[:2])]
+        return listing("metrics", "metric", items, bool(words), "describe_metric")
 
     @server.tool(annotations=READ_ONLY, structured_output=False)
     def describe_metric(

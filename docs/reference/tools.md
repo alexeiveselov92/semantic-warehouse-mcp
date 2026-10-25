@@ -46,7 +46,16 @@ shown means.
 
 `search` keeps the datasets holding every one of its words, in any case, anywhere in the dataset as written — its
 name, source, description, `ai_context`, its fields' names and descriptions, its own metadata. `search: "sales mart"`
-finds a dataset tagged `sales` in the layer `mart`.
+finds a dataset tagged `sales` in the layer `mart`. The closest come first: those with every word in their name, then
+those with every word in what they say of themselves (name, source, label, description, `ai_context`), then the rest —
+and, within each, those whose name holds more of the words.
+
+**A list too long for one answer** — a model of hundreds of tables — names every dataset only, grouped by its model,
+with `compact: true` and a `note` saying so: the map of what there is, in one answer (`{"connection": "shop", "model":
+"shop", "names": ["orders", "customers", …]}`). `search` then gives the descriptions of the ones that matter, and
+`describe_dataset` one in full. Only when even the names do not fit are the last ones left out, the `note` saying how
+many are named (`truncated`). An agent never reads a semantic model whole: the server holds it, and answers one
+question about it at a time.
 
 ```json
 {"vocabulary":{"acme":{"tags":{"description":"What a table or a column is about.",
@@ -84,7 +93,8 @@ that order — and `note` says what was.
 The metrics of the semantic models: how the team defines its numbers. Takes `connection` and `search` (both optional,
 as in `list_datasets`). Answers each metric's `connection`, `model`, `metric` (its name), `dataset` (for a dataset's
 own metric), `description` (its first line), `synonyms`, and the own metadata marked `in_lists` — with `vocabulary`
-beside the list.
+beside the list. A search lists the closest first, and a list too long for one answer names every metric only, by
+model (`compact`; a dataset's own metric as `dataset.metric`), as `list_datasets` does.
 
 ## `describe_metric`
 

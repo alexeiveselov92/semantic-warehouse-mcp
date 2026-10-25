@@ -373,3 +373,12 @@ the rest; `check()` refuses a session that keeps one. Also: `UUID_SHORT` (a serv
 **The author**: "enough of the databases there are for now — the main one, ClickHouse, we support". Milestone 5 stops
 at PostgreSQL and MySQL beside ClickHouse and DuckDB; BigQuery and Snowflake move to Later. The self-check at start
 stays in milestone 5.
+
+## 2026-10-25 · A list too long names every item; a search lists the closest first
+
+**The author** asked how an agent works with a model of thousands of fields. Measured on two real dbt-built models (427
+and 715 tables, ~4 MB of YAML each): the server holds the model, an agent reads answers of at most
+`answer_characters` — but a list showed only its first 77 / 111 tables, and a search of common words filled the answer
+in the model's order. Now a list that does not fit in full names every item, by model (`compact`) — the map, in 15 /
+21 thousand characters — and only past that are names left out, saying so; a search sorts by where its words are
+(all in the name; all in what the item says of itself; anywhere), then by how many the name holds.

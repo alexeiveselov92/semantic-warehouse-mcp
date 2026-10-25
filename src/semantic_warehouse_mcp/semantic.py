@@ -371,11 +371,29 @@ def first_line(text: str | None, limit: int = 200) -> str | None:
     return shown if len(shown) <= limit else line[: limit - 1] + "…"
 
 
-def matches(node: Any, words: list[str]) -> bool:
-    """Whether every word appears (in any case) somewhere in a dataset or a metric as written — its name, source,
-    description, `ai_context`, fields, own metadata."""
-    text = " ".join(_strings(node)).casefold()
-    return all(word.casefold() in text for word in words)
+# What a dataset or a metric says of itself, before its fields and its own metadata: where a search word weighs most.
+HEAD_KEYS = ("name", "source", "label", "description", "ai_context")
+
+
+def rank(node: Any, words: list[str]) -> tuple[int, int] | None:
+    """How closely a dataset or a metric matches a search, every word of which (in any case) must appear in it as
+    written — or None when one does not. Lower is closer: first where the words are — 0, all in its name; 1, all in
+    what it says of itself (its name, source, label, description, `ai_context`); 2, anywhere (its fields, its own
+    metadata too) — then how many of them its name holds."""
+    if not words:
+        return (0, 0)
+    folded = [word.casefold() for word in words]
+
+    def holds(strings: Iterator[str]) -> bool:
+        text = " ".join(strings).casefold()
+        return all(word in text for word in folded)
+
+    in_name = sum(word in str(node.get("name", "")).casefold() for word in folded)
+    if in_name == len(folded):
+        return (0, -in_name)
+    if holds(_strings([node.get(key) for key in HEAD_KEYS])):
+        return (1, -in_name)
+    return (2, -in_name) if holds(_strings(node)) else None
 
 
 def _strings(node: Any) -> Iterator[str]:
