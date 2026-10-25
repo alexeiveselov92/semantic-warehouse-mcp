@@ -82,12 +82,13 @@ The engine production work runs on (the author, 2026-10-24) — moved up from "t
 
 ## Milestone 5. The other databases people use — 2 sessions
 
-- [ ] PostgreSQL, MySQL; then BigQuery, Snowflake — each an adapter with its read-only session, its guard deny-list
+- [x] PostgreSQL, MySQL; then BigQuery, Snowflake — each an adapter with its read-only session, its guard deny-list
       and probes; tested against real servers in containers where they exist. PostgreSQL ✅ 2026-10-25 (a read-only
       transaction, a cursor, the plan read through the named views; tested on 17 in a container and in CI; real
       Claude Code answered April revenue by country, checked by a direct query); drivers made extras (the author).
       MySQL ✅ 2026-10-25 (a read-only session, `/*!` and `/*+` refused, rows and time stopped by the server; tested on
       8.4 in a container and in CI; real Claude Code answered May revenue and a signup cohort, checked).
+      BigQuery and Snowflake put off (the author, 2026-10-25: "enough of the databases there are for now") — in Later.
 - [ ] The self-check at start: probes with known verdicts run through the guard and the engine's own parser; a
       dialect either misreads is refused, not trusted.
 
@@ -128,5 +129,6 @@ The engine production work runs on (the author, 2026-10-24) — moved up from "t
 
 ## Later
 
-Per-person access when served to a team (or left to a gateway); saved query sets made by agents; a semantic
+BigQuery and Snowflake (put off by the author on 2026-10-25: the emulator and fakesnow, a real account if one
+exists); per-person access when served to a team (or left to a gateway); saved query sets made by agents; a semantic
 model written back as Ossie from what agents learn — only with a person's review.

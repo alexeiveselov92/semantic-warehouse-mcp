@@ -4,6 +4,7 @@ One line per change, newest on top: `YYYY-MM-DD — what was done`.
 
 ---
 
+2026-10-25 — BigQuery and Snowflake put off (the author: enough databases for now); milestone 5 keeps the self-check at start
 2026-10-25 — **0.4.0**: MySQL (the agent, at the author's word, so the site promises what PyPI has)
 2026-10-25 — MySQL refuted by a second reader: on a server with `NO_BACKSLASH_ESCAPES` a string ended where the guard did not see it end, and a secret row read by its key ran past the guard and the plan — every session now drops the `sql_mode` modes that change how text is read (`NO_BACKSLASH_ESCAPES`, `ANSI_QUOTES`, `ANSI`), and `check()` refuses one that keeps them; `UUID_SHORT` and `SQL_CALC_FOUND_ROWS` refused
 2026-10-25 — MySQL (`engine: mysql`, the `mysql` extra): a read-only session and transaction, `max_execution_time` and a `KILL QUERY` past it, rows read as they come and stopped one past the limit, `/*! … */` and `/*+ … */` refused (MySQL runs what sqlglot reads as a comment — measured reading a secret table past the guard), `LOAD_FILE`, locks, sleeps refused by name, a user with `FILE` or `SUPER` refused at start, the plan's tables (8.3+) held to `readable`; tested against MySQL 8.4 in a container and in CI; `make_shop.py --mysql`, `examples/config.mysql.example.yaml`; real Claude Code answered May revenue and a signup cohort through it, checked by direct queries

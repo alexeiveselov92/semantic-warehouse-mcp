@@ -7,8 +7,8 @@
 **Released: 0.4.0, pre-alpha** — on PyPI and GHCR (`ghcr.io/alexeiveselov92/semantic-warehouse-mcp:0.4.0`): MySQL;
 0.3.0 brought PostgreSQL and drivers as extras, 0.2.0 skills and repositories. **The site is live at
 https://swm.pipelab.dev**, redeployed on every push that changes `docs/` or `website/`. Milestones 0–4 done.
-**Current: milestone 5, the other databases** — PostgreSQL and MySQL done; next BigQuery and Snowflake, and the
-self-check at start.
+**Current: milestone 5, the other databases** — PostgreSQL and MySQL done; BigQuery and Snowflake put off by the
+author ("enough databases for now"); the self-check at start remains.
 
 ## What exists
 
@@ -54,15 +54,12 @@ so the site never promises what PyPI lacks; the site at `swm.pipelab.dev`.
 
 ## Next step
 
-Milestone 5's rest (`dev/PLAN.md`): BigQuery (the emulator `goccy/bigquery-emulator`) and Snowflake (no server to run:
-fakesnow, and a real account only if the author has one) — each in its extra; then the self-check at start (probes
-with known verdicts through the guard and the engine). Then milestone 6, metrics.
+Milestone 5's rest (`dev/PLAN.md`): the self-check at start (probes with known verdicts through the guard and the
+engine). Then milestone 6, metrics. BigQuery and Snowflake wait in Later.
 
 ## What the author needs to do
 
 1. Nothing blocks. For the container tests locally, Docker running.
-2. For Snowflake, say whether a real account exists to test against (a trial works); otherwise it is tested on
-   fakesnow only, and the guide says so.
 
 ## Don't
 

@@ -367,3 +367,9 @@ read a secret row past the guard, and past the plan (a lookup by key is read whi
 every session drops the modes that change how text is read (`NO_BACKSLASH_ESCAPES`, `ANSI_QUOTES`, `ANSI`) and keeps
 the rest; `check()` refuses a session that keeps one. Also: `UUID_SHORT` (a server counter) refused,
 `SQL_CALC_FOUND_ROWS` refused; a stored function reading past `readable` is noted, as for PostgreSQL.
+
+## 2026-10-25 · Enough databases for now: BigQuery and Snowflake put off
+
+**The author**: "enough of the databases there are for now — the main one, ClickHouse, we support". Milestone 5 stops
+at PostgreSQL and MySQL beside ClickHouse and DuckDB; BigQuery and Snowflake move to Later. The self-check at start
+stays in milestone 5.
