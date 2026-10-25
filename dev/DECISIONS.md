@@ -395,7 +395,7 @@ of instructions that taught agents SQL against catalog tables the dbt project wr
   names (`dbt_depends_on`, `dbt_code`), like `dbt_tags`: dbt's own facts, under the team's names, declared in its
   vocabulary. Lineage is the tables a model reads, `schema.table` (the database first when it is not the project's),
   through ephemeral models; the code is `raw_code`, as written — the compiled code needs a database to make. Measured on
-  two real projects: median 1.6 thousand characters of SQL, 90% under 4.4 thousand, the largest 37 thousand — so
+  two real projects: most models' SQL runs to a few thousand characters, the largest to some tens of thousands — so
   `describe_dataset` serves it whole and, past the answer limit, cuts own-metadata texts to 2000 characters before it
   leaves out any field.
 - **An exact filter by the team's own metadata.** The catalog was filtered with SQL (`has(tags, 'x') AND layer IN …`);

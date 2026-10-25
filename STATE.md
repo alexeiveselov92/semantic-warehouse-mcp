@@ -37,9 +37,9 @@ author, the self-check at start remains.
 
 - 739 tests pass, none skipped (real ClickHouse, PostgreSQL 17, MySQL 8.4 in containers; a git server on loopback);
   ruff clean; the site builds.
-- Measured on two real dbt projects in a scratch copy (nothing of them here): SQL median 1.6 thousand characters, the
-  largest 37 thousand; `describe_dataset` median ~10 / ~7 thousand characters with it; `list_metadata` of both models
-  16 thousand; a filter by a tag and by a layer, lineage downstream of a staging table — all within one answer.
+- Measured on two real dbt projects in a scratch copy (nothing of them here): most models' SQL a few thousand
+  characters, the largest some tens of thousands; `describe_dataset` with it, `list_metadata` of a whole model, a filter
+  by a tag and by a layer, lineage downstream of a staging table — each within one answer.
 - The guard refuted by a second reader on ClickHouse 22.11–26.3 and DuckDB: 2 high (joins, aliases), 1 medium (views —
   documented), 3 low (one fixed, two documented). 23 mutations of the new protections, 23 caught (one survivor at
   first, closed with a test).
@@ -57,8 +57,8 @@ filter and its menu; `narrowed_by`); a large table read alone in its SELECT, and
 1. The author: push `main` and tag `v0.6.0` (publishes PyPI and the image; the site redeploys).
 2. **ClickHouse before 24.3: a GROUP BY over an `ALIAS` column is refused** (`engine_parse`): the query runs, but the
    resolved tree the server asks for (`EXPLAIN QUERY TREE run_passes = 1`) fails with Code 215 `NOT_AN_AGGREGATE` —
-   reproduced on 22.11 in a container; found by a real installation's raw event log, whose per-event fields are
-   `ALIAS` columns (`countIf(alias = …)` passes; grouping by the stored column works round it). Needs another reading
+   reproduced on 22.11 in a container; found on a real installation (`countIf(alias = …)` passes; grouping by
+   the stored column works round it). Needs another reading
    of the tables a query reads on those servers, as strict — with a second reader.
 3. Milestone 5's rest (`dev/PLAN.md`): the self-check at start. Then milestone 6, metrics.
 4. Later, from the second reader: a `narrowed_by` / `bound_by` column the table lacks could be named at start (today
