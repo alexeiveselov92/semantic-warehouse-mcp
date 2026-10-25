@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict
 ENGINES: dict[str, str] = {
     "clickhouse": "semantic_warehouse_mcp.adapters.clickhouse:ClickHouseAdapter",
     "duckdb": "semantic_warehouse_mcp.adapters.duckdb:DuckDBAdapter",
+    "mysql": "semantic_warehouse_mcp.adapters.mysql:MySQLAdapter",
     "postgres": "semantic_warehouse_mcp.adapters.postgres:PostgresAdapter",
 }
 

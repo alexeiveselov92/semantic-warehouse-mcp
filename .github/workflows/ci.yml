@@ -31,9 +31,18 @@ jobs:
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 2s --health-retries 30
+      mysql:  # a throwaway server for tests/test_mysql.py
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: admin
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -padmin" --health-interval 3s --health-timeout 3s
+          --health-retries 40
     env:
       SWM_TEST_CLICKHOUSE_URL: http://localhost:8123
       SWM_TEST_POSTGRES_URL: postgresql://postgres:admin@localhost:5432/postgres
+      SWM_TEST_MYSQL_URL: mysql://root:admin@127.0.0.1:3306
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.2.0

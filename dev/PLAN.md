@@ -86,6 +86,8 @@ The engine production work runs on (the author, 2026-10-24) — moved up from "t
       and probes; tested against real servers in containers where they exist. PostgreSQL ✅ 2026-10-25 (a read-only
       transaction, a cursor, the plan read through the named views; tested on 17 in a container and in CI; real
       Claude Code answered April revenue by country, checked by a direct query); drivers made extras (the author).
+      MySQL ✅ 2026-10-25 (a read-only session, `/*!` and `/*+` refused, rows and time stopped by the server; tested on
+      8.4 in a container and in CI; real Claude Code answered May revenue and a signup cohort, checked).
 - [ ] The self-check at start: probes with known verdicts run through the guard and the engine's own parser; a
       dialect either misreads is refused, not trusted.
 

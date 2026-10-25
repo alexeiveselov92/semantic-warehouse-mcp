@@ -4,6 +4,7 @@
     uv run python examples/data/make_shop.py /some/where.duckdb
     uv run python examples/data/make_shop.py --clickhouse http://localhost:8123
     uv run python examples/data/make_shop.py --postgres postgresql://postgres:…@localhost:5432/postgres
+    uv run python examples/data/make_shop.py --mysql mysql://root:…@localhost:3306
 
 Half a year of a small online shop: customers in a few countries, paid orders (prices rose on 2026-03-01, some orders
 refunded), and the raw events behind them — the large table a query must bound by its date.
@@ -14,6 +15,9 @@ tables in them, as the user in CLICKHOUSE_USER with the password in CLICKHOUSE_P
 For PostgreSQL, a throwaway server too, as a user that may create schemas and roles: it replaces the schemas `marts`,
 `raw` and `dictionaries`, and makes the role the example connects as — `shop_reader`, password `shop_reader`, which
 may only read them (the server refuses a superuser).
+
+For MySQL, a throwaway server too, as root: it replaces the databases `marts`, `raw` and `dictionaries`, and makes the
+user the example connects as — `shop_reader`, password `shop_reader`, which may only read them.
 """
 
 import datetime
@@ -173,6 +177,52 @@ def build_postgres(url: str) -> None:
     print("PostgreSQL: " + ", ".join(f"{table} {len(rows)}" for table, rows in tables.items()))
 
 
+MYSQL_SCHEMA = [
+    "CREATE TABLE dictionaries.countries (country VARCHAR(2), name VARCHAR(40), currency VARCHAR(3)) "
+    "COMMENT '{dictionaries.countries}'",
+    "CREATE TABLE marts.customers (customer_id VARCHAR(10), country VARCHAR(2), signed_up_on DATE) "
+    "COMMENT '{marts.customers}'",
+    """CREATE TABLE marts.orders (
+         order_id VARCHAR(10), order_date DATE, customer_id VARCHAR(10), currency VARCHAR(3),
+         amount DECIMAL(12, 2) COMMENT '{marts.orders.amount}',
+         refunded_amount DECIMAL(12, 2) COMMENT '{marts.orders.refunded_amount}'
+       ) COMMENT '{marts.orders}'""",
+    """CREATE TABLE raw.events (
+         event_date DATE, event_time DATETIME, event_name VARCHAR(20), customer_id VARCHAR(10), order_id VARCHAR(10)
+       ) COMMENT '{raw.events}'""",
+]
+
+
+def build_mysql(url: str) -> None:
+    import urllib.parse
+
+    import pymysql
+
+    parsed = urllib.parse.urlsplit(url)
+    connection = pymysql.connect(
+        host=parsed.hostname, port=parsed.port or 3306, user=urllib.parse.unquote(parsed.username or "root"),
+        password=urllib.parse.unquote(parsed.password or ""), autocommit=True,
+    )  # fmt: skip
+    tables = shop()
+    escaped = {name: comment.replace("'", "''") for name, comment in COMMENTS.items()}
+    with connection.cursor() as cursor:
+        for database in ("marts", "raw", "dictionaries"):
+            cursor.execute(f"DROP DATABASE IF EXISTS {database}")
+            cursor.execute(f"CREATE DATABASE {database}")
+        for statement in MYSQL_SCHEMA:
+            for name, comment in escaped.items():
+                statement = statement.replace("{" + name + "}", comment)
+            cursor.execute(statement)
+        for table, rows in tables.items():
+            marks = ", ".join(["%s"] * len(rows[0]))
+            cursor.executemany(f"INSERT INTO {table} VALUES ({marks})", rows)
+        cursor.execute("CREATE USER IF NOT EXISTS 'shop_reader'@'%' IDENTIFIED BY 'shop_reader'")
+        for database in ("marts", "raw", "dictionaries"):
+            cursor.execute(f"GRANT SELECT ON {database}.* TO 'shop_reader'@'%'")
+    connection.close()
+    print("MySQL: " + ", ".join(f"{table} {len(rows)}" for table, rows in tables.items()))
+
+
 def _iso(value: datetime.date) -> str:
     return value.isoformat(sep=" ") if isinstance(value, datetime.datetime) else value.isoformat()
 
@@ -182,6 +232,8 @@ if __name__ == "__main__":
         build_clickhouse(sys.argv[2])
     elif len(sys.argv) > 2 and sys.argv[1] == "--postgres":
         build_postgres(sys.argv[2])
+    elif len(sys.argv) > 2 and sys.argv[1] == "--mysql":
+        build_mysql(sys.argv[2])
     else:
         build(
             pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else pathlib.Path(__file__).resolve().parent / "shop.duckdb"

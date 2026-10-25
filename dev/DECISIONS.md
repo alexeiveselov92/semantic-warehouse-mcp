@@ -345,3 +345,25 @@ read-only transaction for an owner — now refused by name, and a user that owns
 refused at start. A function defined in the database reads with the user's grants, unseen by the guard and the plan:
 the grants are the line, so the server notes — never refuses — a user that may read beyond `readable`, or holds
 `pg_read_all_data` or `BYPASSRLS`. Catalog metadata (sizes, definitions) is not data, and is not refused.
+
+## 2026-10-25 · MySQL: a read-only session, text MySQL runs as comments refused, the plan where it names tables
+
+Decided by the agent, at the author's word ("decide yourself, continue"). Measured on 8.4 before writing it:
+`/*! … */` is SQL to MySQL and a comment to sqlglot — `SELECT id /*! , (SELECT name FROM secret.t) */ FROM t` passed
+the guard and read the secret table — so a query holding `/*!` or `/*+` (hints: `MAX_EXECUTION_TIME`, `SET_VAR` that
+lifts `sql_select_limit`) is refused before it runs, even inside a string. A read-only transaction stops writes and
+`FOR UPDATE`, not `GET_LOCK` or `SLEEP`: those are refused by name, with `LOAD_FILE`, `BENCHMARK` and replication waits.
+A user with `FILE` or `SUPER` on every database is refused at start. Rows: `sql_select_limit` one past `rows`, then
+read as they come and the rest stopped (`KILL QUERY` from another connection — a statement's own `LIMIT` outranks
+`sql_select_limit`); time: `max_execution_time`, then `KILL QUERY` past a margin. The plan (`EXPLAIN FORMAT=JSON`,
+`explain_json_format_version = 2`, MySQL 8.3+) names schema and table — read through the named views
+(`VIEW_TABLE_USAGE`) — but leaves out the tables MySQL reads while planning (one row, a unique lookup): a second layer
+only, the guard's reading the first; before 8.3 a plan names aliases, so it only says whether MySQL can plan the
+query. PyMySQL (pure Python) in the `mysql` extra; TLS on by default.
+
+Refuted by a second reader the same day: on a server whose `sql_mode` holds `NO_BACKSLASH_ESCAPES`, a string ends at
+`\'` for MySQL and not for sqlglot — `SELECT 'a\' AS x, (SELECT ssn FROM secret.people WHERE id = 1) AS leaked -- '`
+read a secret row past the guard, and past the plan (a lookup by key is read while planning). Closed at the source:
+every session drops the modes that change how text is read (`NO_BACKSLASH_ESCAPES`, `ANSI_QUOTES`, `ANSI`) and keeps
+the rest; `check()` refuses a session that keeps one. Also: `UUID_SHORT` (a server counter) refused,
+`SQL_CALC_FOUND_ROWS` refused; a stored function reading past `readable` is noted, as for PostgreSQL.

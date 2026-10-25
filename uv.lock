@@ -639,6 +639,20 @@ crypto = [
 ]
 
 [[package]]
+name = "pymysql"
+version = "1.2.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b1/d4/c15b459e25a23767d2f4065ef40968920320f04e302889574310c21c96a3/pymysql-1.2.3.tar.gz", hash = "sha256:d5b288529782e536ae171866df3ca9dc4f6cbfb3cc2f18e6f837fbb90dbc262b", size = 50629, upload-time = "2026-09-17T12:22:49.146Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a9/4b/0a906d8184f011ff8dbd4722743783867589b33269d2c5fff238d636fdcb/pymysql-1.2.3-py3-none-any.whl", hash = "sha256:14f1c68e2ed859243ae5ca41ffbe677027fc46bc136a9f0be8a4e928e5e7415a", size = 46740, upload-time = "2026-09-17T12:22:47.826Z" },
+]
+
+[package.optional-dependencies]
+rsa = [
+    { name = "cryptography" },
+]
+
+[[package]]
 name = "pytest"
 version = "9.1.1"
 source = { registry = "https://pypi.org/simple" }
@@ -877,7 +891,7 @@ wheels = [
 
 [[package]]
 name = "semantic-warehouse-mcp"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
@@ -893,9 +907,13 @@ dependencies = [
 all = [
     { name = "duckdb" },
     { name = "psycopg", extra = ["binary"] },
+    { name = "pymysql", extra = ["rsa"] },
 ]
 duckdb = [
     { name = "duckdb" },
+]
+mysql = [
+    { name = "pymysql", extra = ["rsa"] },
 ]
 postgres = [
     { name = "psycopg", extra = ["binary"] },
@@ -915,13 +933,14 @@ requires-dist = [
     { name = "jsonschema", specifier = ">=4.23" },
     { name = "mcp", specifier = ">=2.3,<3" },
     { name = "psycopg", extras = ["binary"], marker = "extra == 'postgres'", specifier = ">=3.2" },
+    { name = "pymysql", extras = ["rsa"], marker = "extra == 'mysql'", specifier = ">=1.1" },
     { name = "pyyaml", specifier = ">=6" },
-    { name = "semantic-warehouse-mcp", extras = ["clickhouse", "duckdb", "postgres"], marker = "extra == 'all'" },
+    { name = "semantic-warehouse-mcp", extras = ["clickhouse", "duckdb", "mysql", "postgres"], marker = "extra == 'all'" },
     { name = "sqlglot", specifier = ">=27" },
     { name = "starlette", specifier = ">=0.46" },
     { name = "uvicorn", specifier = ">=0.34" },
 ]
-provides-extras = ["clickhouse", "duckdb", "postgres", "all"]
+provides-extras = ["clickhouse", "duckdb", "mysql", "postgres", "all"]
 
 [package.metadata.requires-dev]
 dev = [

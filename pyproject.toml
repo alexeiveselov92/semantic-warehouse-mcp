@@ -1,6 +1,6 @@
 [project]
 name = "semantic-warehouse-mcp"
-version = "0.3.0"
+version = "0.4.0"
 description = "A read-only MCP server for SQL databases with a semantic layer in an open format (Apache Ossie), metrics, your own context and skills — for any database and any MCP client."
 readme = "README.md"
 license = "Apache-2.0"
@@ -34,8 +34,9 @@ dependencies = [
 [project.optional-dependencies]
 clickhouse = []
 duckdb = ["duckdb>=1.3"]
+mysql = ["pymysql[rsa]>=1.1"]
 postgres = ["psycopg[binary]>=3.2"]
-all = ["semantic-warehouse-mcp[clickhouse,duckdb,postgres]"]
+all = ["semantic-warehouse-mcp[clickhouse,duckdb,mysql,postgres]"]
 
 [project.urls]
 Repository = "https://github.com/alexeiveselov92/semantic-warehouse-mcp"

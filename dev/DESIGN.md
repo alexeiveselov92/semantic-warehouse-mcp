@@ -68,6 +68,13 @@ whether there were more; stop after `seconds`), `tables()` and `columns()`.
   Name` nodes, minus the base tables of the views the guard named (`pg_rewrite` → `pg_depend`, recursively), each
   partition or inheriting table mapped to its root (`pg_inherits`). `engine_reading` takes the guard's tables for it
   (`named`).
+- **MySQL** (built, milestone 5): PyMySQL (the `mysql` extra); a connection per call with `SET SESSION TRANSACTION READ
+  ONLY` as its first statement and `START TRANSACTION READ ONLY` before each query; `/*!` and `/*+` anywhere in a query
+  refused (`engine_reading` and `run`); `max_execution_time` and `sql_select_limit` per session; an unbuffered cursor
+  read `max_rows + 1`, the rest stopped by `KILL QUERY` from a second connection; a user with `FILE` or `SUPER` on `*.*`
+  refused (`SHOW GRANTS`). The reading: `EXPLAIN FORMAT=JSON` with `explain_json_format_version = 2` (8.3+: schema and
+  table), the named views' tables from `information_schema.VIEW_TABLE_USAGE`, recursively; const tables are not in a
+  plan, so it is a second layer.
 - **Drivers are extras** (`DECISIONS.md`): an adapter imports its driver at module load inside `try`, and `check()`
   names the extra when it is missing.
 - **DuckDB's own reading** names tables too: `json_serialize_sql` gives its parse tree, whose `BASE_TABLE` nodes are

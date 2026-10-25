@@ -1,7 +1,7 @@
 # Engines
 
 The databases semantic-warehouse-mcp reads, each through an adapter: its configuration keys, how it is kept read-only,
-and what the guard allows on it. Supported now: ClickHouse, PostgreSQL and DuckDB. Next: MySQL, BigQuery, Snowflake.
+and what the guard allows on it. Supported now: ClickHouse, PostgreSQL, MySQL and DuckDB. Next: BigQuery, Snowflake.
 
 Whatever the engine, give the server a database user that can read only the tables agents may read: the engine's own
 read-only means and [the guard](guard.md) keep queries from writing, and the user's grants are the line the database
@@ -13,6 +13,7 @@ Each engine's driver comes with an extra of its own — install the ones you use
 
 ```sh
 pip install 'semantic-warehouse-mcp[postgres]'           # PostgreSQL (psycopg)
+pip install 'semantic-warehouse-mcp[mysql]'              # MySQL (PyMySQL)
 pip install 'semantic-warehouse-mcp[duckdb]'             # DuckDB
 pip install 'semantic-warehouse-mcp[all]'                # every engine's driver
 uvx --from 'semantic-warehouse-mcp[postgres]' semantic-warehouse-mcp --config config.yaml
@@ -150,6 +151,69 @@ unless quoted, as PostgreSQL resolves them. A three-part name may name the conne
 **Allowed table functions**: `generate_series`, `generate_subscripts`, `unnest`, `regexp_split_to_table`, and the
 JSON ones that unfold a value (`json_each`, `jsonb_each`, `json_array_elements`, … and their `_text` forms). Every
 other table function is refused.
+
+## MySQL
+
+`engine: mysql` — a MySQL server (tried on 8.4). Needs the `mysql` extra.
+
+| Key | | What |
+|---|---|---|
+| `host` | required | the server's address |
+| `port` | | `3306` when not given |
+| `database` | required | the database an unqualified table name resolves to — MySQL's databases are the `schema` of `schema.table` |
+| `user_env` | required | the environment variable holding the user's name |
+| `password_env` | | the environment variable holding the password |
+| `tls` | | `on` (when not given): the connection encrypted; `verify`: the server's certificate checked too; `off`: plain — for a server on the same machine only |
+| `tls_ca` | | with `verify`: the certificate authority's file, relative to the configuration file's folder; the system's when not given |
+
+```yaml
+connections:
+  - name: warehouse
+    engine: mysql
+    host: mysql.example.com
+    database: marts
+    user_env: WAREHOUSE_USER          # the variable's name — its value never appears in a file, a log or an answer
+    password_env: WAREHOUSE_PASSWORD
+    tls: verify
+    readable: ["marts.*", "raw.events"]
+    large_tables:
+      - { table: raw.events, bound_by: event_date }
+```
+
+**Read-only, by MySQL's own means.** The session is made read-only when it opens, and every query runs in a
+transaction started `READ ONLY`: no table is written, even by a stored function that writes, even as a user allowed
+to. What a read-only transaction does not stop, the guard refuses by name: reading the server's files (`LOAD_FILE`),
+taking or waiting on locks (`GET_LOCK`, …), sleeping or burning time (`SLEEP`, `BENCHMARK`), waiting on replication,
+advancing the server's own counter (`UUID_SHORT`), and the functions some servers add to run programs (`sys_exec`,
+`sys_eval`).
+
+**A query is read as the guard reads it.** Each session turns off the modes of `sql_mode` that change how MySQL reads
+a query's text — `NO_BACKSLASH_ESCAPES` (where a string ends), `ANSI_QUOTES` and `ANSI` (what a double quote holds) —
+whatever the server's own setting: with them on, text the guard reads inside a string could run. The rest of the
+server's `sql_mode` is kept. Text MySQL runs though it reads as a comment is refused before anything runs: MySQL runs
+what is inside `/*! … */` as SQL, and reads `/*+ … */` as hints that change a query's limits — so a query holding
+either is refused (`engine_parse`), even inside a string, and so is `SQL_CALC_FOUND_ROWS`, which makes MySQL read every
+row past the limit. Write the query without them.
+
+**The user.** A user holding `FILE` or `SUPER` on every database stops the server at start: `FILE` reads and writes the
+server's files, `SUPER` passes over its read-only settings. Give the server a user that may only read what agents may —
+`GRANT SELECT` on those databases. As with PostgreSQL, `--check` (and the log at start) says when the user may read
+tables `readable` leaves out: a stored function reads with the user's grants, where the guard cannot see.
+
+**Limits.** A query past `seconds` is stopped by the server (`max_execution_time`), and from another connection a few
+seconds later (`KILL QUERY`, the user's own query). The answer is read as it comes — the session asks for one row more
+than `rows`, and an answer with more is stopped one row past it.
+
+**The engine's own reading.** Before a query runs, MySQL plans it (`EXPLAIN`, in a read-only transaction). From MySQL
+8.3 the plan names each table it reads, held to `readable` like the tables the guard found — a view's own tables in
+its place, those of the views the query names left to them. A table MySQL reads while planning — one with a single
+row, or a lookup by a unique key — is not in the plan; the guard's own reading holds it. Before 8.3 a plan names a
+table only by its alias: the reading then says only whether MySQL can plan the query.
+
+**Names.** The default schema is `database`; database and table names are case-sensitive where the server's file
+system is (Linux), as MySQL resolves them. MySQL has no catalogs: a three-part name is refused.
+
+**Allowed table functions**: `JSON_TABLE`. Every other is refused.
 
 ## DuckDB
 

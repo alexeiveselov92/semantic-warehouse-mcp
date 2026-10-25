@@ -10,7 +10,7 @@ it lets agents find the right tables, read what they mean and query them, safely
 
 ## What it does now
 
-- **ClickHouse, PostgreSQL and DuckDB**, configured in one YAML file: the tables agents may read, the large tables a query must
+- **ClickHouse, PostgreSQL, MySQL and DuckDB**, configured in one YAML file: the tables agents may read, the large tables a query must
   bound, limits per query; secrets by variable name, never written in it.
 - **Read-only, checked twice**: one `SELECT` at a time, parsed for the database's own dialect by
   [sqlglot](https://github.com/tobymao/sqlglot) and by the database itself; only the tables you allow, wherever they
@@ -29,7 +29,7 @@ it lets agents find the right tables, read what they mean and query them, safely
 
 ## Install
 
-Each engine's driver is an extra — `postgres`, `duckdb`, or `all` (ClickHouse needs none):
+Each engine's driver is an extra — `postgres`, `mysql`, `duckdb`, or `all` (ClickHouse needs none):
 
 ```bash
 uvx --from 'semantic-warehouse-mcp[all]' semantic-warehouse-mcp --config config.yaml --check   # check, reach every database
