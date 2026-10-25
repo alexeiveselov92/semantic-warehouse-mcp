@@ -1,10 +1,11 @@
 """The dbt importer: a dbt project's tables, their descriptions, `meta` and tags written as an Apache Ossie document the
 server serves like any model (docs/reference/dbt-importer.md).
 
-What is the team's — which tables, the vendor its `meta` goes under, which of its keys stand for Ossie's own places, the
-keys dbt's own tags, lineage and SQL are written under — is the importer's configuration. The code reads only what is
-dbt's own: descriptions, `meta` and tags as wholes, the primary key dbt infers, `relationships` tests, a model's
-`event_time`, the tables a model reads and its SQL as written."""
+What is the team's — which tables (by name, or by dbt's own selection: tags, paths, config), the vendor its `meta` goes
+under, which of its keys stand for Ossie's own places, the keys dbt's own tags, lineage and SQL are written under — is
+the importer's configuration. The code reads only what is dbt's own: descriptions, `meta` and tags as wholes, the
+primary key dbt infers, `relationships` tests, a model's `event_time`, the tables a model reads and its SQL as
+written."""
 
 from __future__ import annotations
 
@@ -36,6 +37,9 @@ RESOURCES = ("model", "seed", "snapshot", "source")
 MANIFEST_TAGS = "tags"
 TWO_PARTS = re.compile(r"^[^.\s]+\.[^.\s]+$")
 PLAIN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+# dbt's node selection (`dbt run --select`), the methods read here — each matched as dbt matches it, `*` and `?` too.
+SELECTION_METHODS = ("tag", "path", "config.<key>", "source", "fqn", "resource_type")
+GRAPH_OPERATORS = re.compile(r"^(\d*\+|@)|\+\d*$")
 # A name each database reads its own way, inside quotes or not: a backslash, a control character.
 UNREADABLE_NAME = re.compile(r"[\\\x00-\x1f\x7f]")
 # How dbt writes the table a test names: ref('name'), ref('package', 'name'), ref('name', v=2); source('a', 'b').
@@ -99,6 +103,8 @@ class ImportFile(_Strict):
     output: str
     model: ModelEntry
     tables: Annotated[list[str], Field(min_length=1)] = ["*.*"]
+    select: list[Annotated[str, Field(min_length=1)]] = []
+    exclude: list[Annotated[str, Field(min_length=1)]] = []
     resources: Annotated[list[Literal["model", "seed", "snapshot", "source"]], Field(min_length=1)] = list(RESOURCES)
     vendor_name: Annotated[str, Field(min_length=1)] | None = None
     dbt_tags: Annotated[str, Field(min_length=1)] | None = None
@@ -147,6 +153,8 @@ class _TableShape(_Shape):
     version: str | int | float | None = None
     depends_on: _DependsOnShape | None = None
     raw_code: str | None = None
+    original_file_path: str | None = None
+    fqn: list[str] | None = None
 
 
 class _TestMetadataShape(_Shape):
@@ -207,6 +215,9 @@ def load(path: str | pathlib.Path) -> Import:
             problems.append(f"{where}: give one of `meta_key` (with its `value`) or `dbt_tag`")
         elif mark.dbt_tag is not None and "value" in mark.model_fields_set:
             problems.append(f"{where}: `value` goes with `meta_key`, not with `dbt_tag`")
+    for setting in ("select", "exclude"):
+        for index, item in enumerate(getattr(entry, setting)):
+            problems += [f"{setting}[{index}]: {said}" for said in _selector_problems(item)]
     for key, what in DBT_OWN.items():
         if getattr(entry, key) and not entry.vendor_name:
             problems.append(f"{key}: needs `vendor_name` — it writes {what} into that vendor's data")
@@ -265,6 +276,7 @@ def build(imported: Import, manifest: Any) -> Result:
     home = _home_database(own)
     by_unique_id = {node["unique_id"]: node for node in every}
     matched = [False] * len(entry.tables)
+    chosen = {setting: [False] * len(getattr(entry, setting)) for setting in ("select", "exclude")}
     datasets: dict[str, dict[str, Any]] = {}
     by_id: dict[str, str] = {}
     columns_of: dict[str, dict[str, Any]] = {}
@@ -277,10 +289,20 @@ def build(imported: Import, manifest: Any) -> Result:
             continue
         schema, table = _relation(node)
         hits = [index for index, pattern in enumerate(entry.tables) if _matches(schema, table, pattern)]
+        selection = {
+            setting: [index for index, item in enumerate(getattr(entry, setting)) if _selected(node, item)]
+            for setting in chosen
+        }
+        for setting, indexes in selection.items():
+            for index in indexes:
+                chosen[setting][index] = True
         if not hits:
             continue
         for index in hits:
             matched[index] = True
+        if (entry.select and not selection["select"]) or selection["exclude"]:
+            result.counts["left out by the selection"] += 1
+            continue
         if node.get("database") and home and node["database"] != home:  # the connection reads its own database
             result.counts["table of another database"] += 1
             continue
@@ -303,10 +325,16 @@ def build(imported: Import, manifest: Any) -> Result:
         by_id[where] = name
         columns_of[where] = node.get("columns") or {}
         result.counts[resource] += 1
+    kinds = ", ".join(f"{kind}s" for kind in entry.resources)
     for index, pattern in enumerate(entry.tables):
         if not matched[index]:
-            kinds = ", ".join(f"{kind}s" for kind in entry.resources)
             problems.append(f"tables[{index}]: {pattern!r} matches none of the manifest's {kinds}")
+    for setting, found in chosen.items():
+        problems += [
+            f"{setting}[{index}]: {getattr(entry, setting)[index]!r} selects none of the manifest's {kinds}"
+            for index, hit in enumerate(found)
+            if not hit
+        ]
 
     relationships = _relationships(manifest["nodes"], every, project, by_id, columns_of, result)
     if problems:
@@ -395,6 +423,71 @@ def _reads(node: dict[str, Any], by_unique_id: dict[str, dict[str, Any]], home: 
         database = other.get("database")
         found.add(f"{_identifier(database)}.{name}" if database and home and database != home else name)
     return sorted(found)
+
+
+def _selector_problems(item: str) -> list[str]:
+    """What a selection item holds that is not read here — each criterion of it, dbt's way: `method:value`, joined by
+    commas (all of them) — said before any manifest is read."""
+    problems = []
+    for criterion in item.split(","):
+        method, colon, value = criterion.strip().partition(":") if ":" in criterion else ("", "", criterion.strip())
+        if not criterion.strip() or (colon and not value):
+            problems.append(f"{item!r}: an empty criterion")
+        elif any(char.isspace() for char in criterion.strip()):
+            problems.append(f"{item!r}: one criterion per list item — a space joins two in dbt's own syntax")
+        elif GRAPH_OPERATORS.search(criterion.strip()):
+            problems.append(f"{item!r}: dbt's graph operators (+, @) are not read here — name what to import")
+        elif (
+            method
+            and method not in ("tag", "path", "source", "fqn", "resource_type")
+            and not (method.startswith("config.") and len(method) > len("config."))
+        ):
+            problems.append(f"{item!r}: the method {method!r} is not read here ({', '.join(SELECTION_METHODS)})")
+        elif method == "resource_type" and value not in RESOURCES:
+            problems.append(f"{item!r}: a resource_type is one of {', '.join(RESOURCES)}")
+    return problems
+
+
+def _selected(node: dict[str, Any], item: str) -> bool:
+    """Whether a selection item — criteria joined by commas, as dbt writes them — selects the node: every criterion."""
+    return all(_criterion(node, criterion.strip()) for criterion in item.split(","))
+
+
+def _criterion(node: dict[str, Any], criterion: str) -> bool:
+    """One criterion of dbt's selection, matched as dbt matches it; a bare one is a path when it reads like one, else
+    a name in the project's tree (`fqn`)."""
+    method, _, value = criterion.partition(":") if ":" in criterion else ("", "", criterion)
+    if not method:
+        method = "path" if "/" in value or value.endswith((".sql", ".py", ".csv", ".yml", ".yaml")) else "fqn"
+    if method == "tag":
+        return any(isinstance(tag, str) and fnmatchcase(tag, value) for tag in node.get(MANIFEST_TAGS) or ())
+    if method == "path":
+        path, wanted = str(node.get("original_file_path") or ""), value.rstrip("/")
+        return path == wanted or path.startswith(wanted + "/") or fnmatchcase(path, wanted)
+    if method == "resource_type":
+        return node.get("resource_type") == value
+    if method == "source":
+        if node.get("resource_type") != "source":
+            return False
+        source, _, table = value.partition(".")
+        return fnmatchcase(str(node.get("source_name")), source) and (
+            not table or fnmatchcase(str(node.get("name")), table)
+        )
+    if method == "fqn":
+        fqn, parts = [str(part) for part in node.get("fqn") or ()], value.split(".")
+        if len(parts) == 1 and fqn and fnmatchcase(fqn[-1], value):
+            return True
+        return any(  # the project's name first or not
+            len(fqn[start : start + len(parts)]) == len(parts)
+            and all(fnmatchcase(part, want) for part, want in zip(fqn[start:], parts, strict=False))
+            for start in (0, 1)
+        )
+    held = (node.get("config") or {}).get(method.removeprefix("config."))
+    return any(
+        fnmatchcase(str(one).lower() if isinstance(one, bool) else str(one), value)
+        for one in (held if isinstance(held, list) else [held])
+        if one is not None
+    )
 
 
 def _matches(schema: str, table: str, pattern: str) -> bool:
@@ -746,6 +839,7 @@ def summary(imported: Import, result: Result) -> list[str]:
     left_out = {
         "meta left out": "the meta of {} tables and columns — no `vendor_name` to hold it",
         "table of another database": "{} tables of another database than the project's — a connection reads its own",
+        "left out by the selection": "{} tables `select` / `exclude` leave out",
         "relationship to a table left out": "{} relationships tests to or from a table not imported",
         "relationship not read": "{} relationships tests whose columns are not names",
     }

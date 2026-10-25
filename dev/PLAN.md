@@ -71,6 +71,8 @@ The engine production work runs on (the author, 2026-10-24) — moved up from "t
       fields that matched, and `list_metadata`, the menu of its values; `narrowed_by` for a log of every kind of event.
       ✅ 2026-10-25 — measured on two real projects; real Claude Code found lineage, money columns and a model's SQL
       through them.
+- [x] Beyond the plan, from a company's use (2026-10-25): the importer chooses tables as dbt selects them (`select`,
+      `exclude` — `tag:`, `path:`, `config.<key>:`, …), so a model holds what the project builds. ✅ 2026-10-25 — 0.7.0.
 
 ## Milestone 4. The docs site — 1 session (built the same sitting as milestone 3's end)
 

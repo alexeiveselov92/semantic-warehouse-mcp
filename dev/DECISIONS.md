@@ -475,3 +475,16 @@ redundant condition, removed. The real installation's query answered through the
 query grouped by the stored column. A second reader (22.11 and 26.3): no query past both layers; two false refusals —
 a quoted name anywhere had turned off the aliases right of `IN`, and the analyzer's CTE-for-table above — both fixed and
 held by tests; `dictGet` / `joinGet` and views remain the guard's alone, as before.
+
+## 2026-10-25 · The dbt importer chooses tables as dbt selects them
+
+From a company's use: its scheduler builds only the models tagged for the daily run (`dbt run --select tag:…`); the
+others were never built (left out at start with `missing_tables: leave_out`) or were built once and stopped — still in
+the database, served to agents as if current. Patterns of table names cannot say which. Decided (the agent, at the
+author's word — "our wants made to work in the library, optionally"): `select` and `exclude` in the importer's
+configuration take dbt's own selection syntax, which the team already writes — the methods that need only the
+manifest (`tag`, `path`, `config.<key>`, `source`, `resource_type`, `fqn`, a bare name or path), commas for all of
+them, list items for any. Not read: graph operators (`+`, `@`) — what a model reads is lineage, not a choice of tables
+to describe — and methods that need a run's state (`state:`, `result:`); refused before the manifest is read, rather
+than half-read. An item that selects nothing is refused, as a pattern of `tables` is: a misspelt tag would otherwise
+import the whole project, or leave nothing out, silently. Without them, nothing changes.

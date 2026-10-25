@@ -45,12 +45,44 @@ places:
 | `output` | required | the Ossie document written |
 | `model` | required | the Ossie model written: its `name` (required), and `description` and `ai_context` as Ossie has them, written as given |
 | `tables` | | which tables, as `schema.table` patterns of the names the database knows them by (`*` and `?` within a part); every table by default. A pattern that matches no table is refused |
+| `select` | | which tables, as dbt selects them — what `dbt run --select` names: `tag:daily`, `path:models/marts`, … ([below](#choosing-tables-as-dbt-does)). Every table `tables` names by default |
+| `exclude` | | which tables to leave out, as dbt selects them — `tag:deprecated`, `path:models/archive` |
 | `resources` | | which kinds of dbt resources: `model`, `seed`, `snapshot`, `source` — all by default |
 | `vendor_name` | | the `vendor_name` the tables' and columns' `meta` is written under, in `custom_extensions` — as written. Without it, `meta` is left out (the import says how much) |
 | `dbt_tags` | | the key of that vendor's data that dbt's own tags (`tags:` in dbt, its run-selection tags) are written under. Without it, they are left out. Needs `vendor_name`; a `meta` that already holds the key is refused |
 | `dbt_depends_on` | | the key of that vendor's data that the tables a model or a snapshot reads are written under — dbt's `depends_on`, each as `schema.table` (with its database first when it is not the project's), through an ephemeral model to the tables that one reads. Without it, left out. Needs `vendor_name`; a `meta` that already holds the key is refused |
 | `dbt_code` | | the key of that vendor's data that a model's or a snapshot's SQL is written under, as the project writes it (with its Jinja: `ref`, `source`, macros). Without it, left out. Needs `vendor_name`; a `meta` that already holds the key is refused |
 | `places` | | which of your own keys stand for Ossie's own places — below |
+
+### Choosing tables as dbt does
+
+A project rarely builds every model it holds: a scheduler runs `dbt run --select tag:daily`, and what it leaves out
+is never built, or was built once and goes stale. `select` and `exclude` take dbt's own selection, so the model holds
+what the project builds:
+
+```yaml
+tables: ["marts.*"]
+select: ["tag:daily"]                        # what the daily run builds
+exclude: ["tag:deprecated", "path:models/archive"]
+```
+
+A table is imported when `tables` names it, any item of `select` selects it (when given), and no item of `exclude`
+does. An item holds one criterion, or several joined by commas — all of them, as dbt reads `tag:daily,path:models/marts`:
+
+| Criterion | Selects |
+|---|---|
+| `tag:<tag>` | the tables dbt tagged so |
+| `path:<path>` | the tables defined in that file, or in a file under that folder (`path:models/marts`) |
+| `config.<key>:<value>` | the tables whose dbt config holds that value — `config.materialized:incremental`, a list holding it, `true` / `false` |
+| `source:<source>` or `source:<source>.<table>` | a source's tables |
+| `resource_type:<kind>` | `model`, `seed`, `snapshot` or `source` |
+| `fqn:<name>` or a bare name | by the project's tree: a model's name (`orders`), a folder of it (`marts`), a dotted path (`marts.orders`) — with the project's name first or not |
+| a bare path | a path, when it holds a `/` or ends as a file does (`models/marts/orders.sql`) |
+
+`*` and `?` match any characters of a value. Refused before the manifest is read: dbt's graph operators (`+orders`, `@orders` — name
+what to import instead), a method not read here (`state:`, `result:`, …), two criteria in one item joined by a space.
+An item that selects none of the project's tables is refused, naming it — a tag misspelt imports nothing silently
+otherwise. What `select` and `exclude` leave out, the import's summary counts.
 
 `meta` and dbt's `tags` are different things in many projects: `meta` holds the team's categories, layers, provenance;
 `tags` are what `dbt run --select tag:…` selects by. Both are written as they are; a [vocabulary](semantic-models.md#vocabularies)

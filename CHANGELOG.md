@@ -4,6 +4,8 @@ One line per change, newest on top: `YYYY-MM-DD — what was done`.
 
 ---
 
+2026-10-25 — **0.7.0**: the dbt importer chooses tables as dbt selects them
+2026-10-25 — the dbt importer: `select` and `exclude` take dbt's own selection — `tag:`, `path:`, `config.<key>:`, `source:`, `resource_type:`, `fqn:` or a bare name or path, criteria joined by commas, `*` and `?` — so a model holds what the project builds (a scheduler's `--select tag:daily`), not models never built or gone stale; graph operators and other methods refused before the manifest is read, an item selecting nothing refused, what they leave out counted
 2026-10-25 — **0.6.1**: ClickHouse before 24.3 — a `GROUP BY` over an `ALIAS` column answered; the engine's reading hardened
 2026-10-25 — ClickHouse where the analyzer does not run queries (before 24.3): the tree as parsed read too (`EXPLAIN QUERY TREE run_passes = 0`), its names resolved by the interpreter's rules as measured on 22.11, its lines held to what ClickHouse prints (a quoted name's line break makes lines); both readings' tables held to the rules, the parsed one alone where the analyzer cannot resolve — a `GROUP BY` over an `ALIAS` column (Code 215) now runs; a CTE named before its definition read as the table the server reads; refuted by a second reader (no bypass; two false refusals fixed); 22.11 in CI
 2026-10-25 — ClickHouse's resolved tree read whole: a table with `FINAL` or an alias with a comma no longer slips past the engine's reading; table functions held to the allowed ones in either tree; a name with more than one dot refused

@@ -7,6 +7,7 @@ import pathlib
 import shutil
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -256,6 +257,90 @@ def test_tables_and_resources_choose_what_is_imported(imported):
     assert list(datasets(document)) == ["dictionaries__countries", "raw__events"]
     assert "relationships" not in document
     assert result.counts["relationship to a table left out"] == 2
+
+
+@pytest.mark.parametrize(
+    ("selection", "expected"),
+    [
+        ({"select": ["tag:daily"]}, ["customers", "orders"]),  # what `dbt run --select tag:daily` builds
+        ({"select": ["tag:dai*"]}, ["customers", "orders"]),
+        ({"select": ["path:models/marts"]}, ["customers", "orders"]),  # a folder, and what is under it
+        ({"select": ["path:models/marts/"]}, ["customers", "orders"]),
+        ({"select": ["path:models/*/orders.sql"]}, ["orders"]),
+        ({"select": ["models/marts/orders.sql"]}, ["orders"]),  # bare, read as a path
+        ({"select": ["marts"]}, ["customers", "orders"]),  # bare, a name in the project's tree
+        ({"select": ["orders"]}, ["orders"]),
+        ({"select": ["fqn:shop.marts.orders"]}, ["orders"]),
+        ({"select": ["source:raw"]}, ["raw__events"]),
+        ({"select": ["source:dictionaries.countries"]}, ["dictionaries__countries"]),
+        ({"select": ["resource_type:source"]}, ["dictionaries__countries", "raw__events"]),
+        ({"select": ["config.materialized:table"]}, ["customers", "orders"]),
+        ({"select": ["config.enabled:true"]}, ["customers", "dictionaries__countries", "orders", "raw__events"]),
+        ({"select": ["tag:daily,path:models/marts/orders.sql"]}, ["orders"]),  # a comma: all of them
+        ({"select": ["source:raw", "fqn:customers"]}, ["customers", "raw__events"]),  # two items: any
+        ({"exclude": ["path:models/marts/customers.sql"]}, ["dictionaries__countries", "orders", "raw__events"]),
+        ({"select": ["tag:daily"], "exclude": ["orders"]}, ["customers"]),
+    ],
+)
+def test_dbts_own_selection_chooses_what_is_imported(imported, selection, expected):
+    document, result = imported(**selection)
+    assert sorted(datasets(document)) == expected
+    assert result.counts["left out by the selection"] == 4 - len(expected)
+    if result.counts["left out by the selection"]:
+        said = dbt.summary(SimpleNamespace(entry=dbt.ImportFile.model_validate(BASE)), result)
+        assert f"left out: {4 - len(expected)} tables `select` / `exclude` leave out" in said
+
+
+def test_the_selection_reads_a_models_config_as_dbt_does(imported):
+    def incremental(manifest):
+        node(manifest, "model.shop.orders")["config"]["materialized"] = "incremental"
+        node(manifest, "model.shop.customers")["config"]["contract"] = {"enforced": True}
+
+    document, _ = imported(change=incremental, select=["config.materialized:incremental"])
+    assert list(datasets(document)) == ["orders"]
+    document, _ = imported(change=incremental, exclude=["config.materialized:incremental"], tables=["marts.*"])
+    assert list(datasets(document)) == ["customers"] and "relationships" not in document
+
+
+def test_a_selection_item_that_selects_nothing_is_named(imported):
+    """A typo in a tag must not import a model of none — nor leave nothing out unsaid."""
+    found = imported(select=["tag:daily", "tag:dialy"], exclude=["path:models/mart"], problems=True)
+    assert found == [
+        "select[1]: 'tag:dialy' selects none of the manifest's models, seeds, snapshots, sources",
+        "exclude[0]: 'path:models/mart' selects none of the manifest's models, seeds, snapshots, sources",
+    ]
+
+    def disabled(manifest):
+        node(manifest, "model.shop.customers")["config"]["enabled"] = False
+
+    found = imported(change=disabled, select=["customers"], problems=True)
+    assert found == ["select[0]: 'customers' selects none of the manifest's models, seeds, snapshots, sources"]
+    found = imported(select=["source:raw.countries"], problems=True)  # the source is there, not that table of it
+    assert found == [
+        "select[0]: 'source:raw.countries' selects none of the manifest's models, seeds, snapshots, sources"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("item", "said"),
+    [
+        ("+orders", "dbt's graph operators (+, @) are not read here — name what to import"),
+        ("orders+", "dbt's graph operators (+, @) are not read here — name what to import"),
+        ("2+orders", "dbt's graph operators (+, @) are not read here — name what to import"),
+        ("@orders", "dbt's graph operators (+, @) are not read here — name what to import"),
+        ("state:modified", "the method 'state' is not read here (tag, path, config.<key>, source, fqn, resource_type)"),
+        ("config.:x", "the method 'config.' is not read here (tag, path, config.<key>, source, fqn, resource_type)"),
+        ("tag:a tag:b", "one criterion per list item — a space joins two in dbt's own syntax"),
+        ("tag:", "an empty criterion"),
+        ("tag:a,", "an empty criterion"),
+        ("resource_type:test", "a resource_type is one of model, seed, snapshot, source"),
+    ],
+)
+def test_a_selection_not_read_here_is_refused_before_the_manifest(tmp_path, item, said):
+    (tmp_path / "import.yaml").write_text(json.dumps({**BASE, "exclude": [item]}), encoding="utf-8")
+    with pytest.raises(dbt.ImportProblem) as raised:
+        dbt.load(tmp_path / "import.yaml")
+    assert f"exclude[0]: {item!r}: {said}" in raised.value.problems
 
 
 def test_the_configuration_is_checked_every_problem_at_once(tmp_path):

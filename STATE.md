@@ -4,11 +4,11 @@
 
 **Updated:** 25 October 2026.
 
-**Released: 0.6.0** (PyPI, GHCR, the site) — what a company's earlier data agent had and the server lacked: what a
-model reads and its SQL from dbt, lists filtered by the team's own metadata with `list_metadata` as their menu,
-`narrowed_by` for an event log; the guard hardened by a second reader. **Prepared: 0.6.1** — ClickHouse before 24.3:
-a `GROUP BY` over an `ALIAS` column answered, the tree as parsed read by the rules of the interpreter that runs the
-query; the engine's reading hardened. **The site is live at https://swm.pipelab.dev.** Milestones 0–4 done; **current:
+**Released: 0.6.0 and 0.6.1** (PyPI, GHCR, the site) — 0.6.0: what a company's earlier data agent had and the
+server lacked (lineage and SQL from dbt, a metadata filter and its menu, `narrowed_by`), the guard hardened by a second
+reader; 0.6.1: ClickHouse before 24.3 — a `GROUP BY` over an `ALIAS` column answered, the tree as parsed read by the
+rules of the interpreter that runs the query. **Prepared: 0.7.0** — the dbt importer chooses tables as dbt selects
+them (`select`, `exclude`: `tag:`, `path:`, `config.<key>:`, …). **The site is live at https://swm.pipelab.dev.** Milestones 0–4 done; **current:
 milestone 5** — PostgreSQL, MySQL and the ClickHouse-before-24.3 item done, BigQuery and Snowflake put off by the
 author, the self-check at start remains.
 
@@ -26,14 +26,15 @@ author, the self-check at start remains.
   start): the resolved tree and the tree as parsed (`run_passes = 0`), the latter read as a tree every line of which
   ClickHouse could print (a quoted name's line break makes lines) and resolved by the interpreter's rules as measured
   on 22.11 (CTE scope, aliases right of `IN`); the parsed tree alone where the analyzer cannot resolve the query.
-- **The semantic layer**: Ossie models, vocabularies, the dbt importer (`dbt_tags`, `dbt_depends_on`, `dbt_code`),
+- **The semantic layer**: Ossie models, vocabularies, the dbt importer (`dbt_tags`, `dbt_depends_on`, `dbt_code`;
+  tables by name and by dbt's own selection — `select`, `exclude`),
   `metadata` filters, `list_metadata`, `describe_dataset` cutting long own-metadata texts before a field.
 - **Context and skills** from disk or git repositories; **the site** (`website/`); the start's log counts the
   datasets left out and names five.
 
 ## How it was verified
 
-- 782 tests pass, none skipped (ClickHouse 25.8 and 22.11, PostgreSQL 17, MySQL 8.4 in containers — 22.11 now in CI
+- 812 tests pass, none skipped (ClickHouse 25.8 and 22.11, PostgreSQL 17, MySQL 8.4 in containers — 22.11 now in CI
   too); ruff clean; the site builds.
 - The 22.11 reading: 28 mutations of its protections, 27 caught, the survivor a redundant condition (removed). A
   second reader on 22.11 and 26.3 found no query past both layers; two false refusals (a quoted name turning off
@@ -41,20 +42,22 @@ author, the self-check at start remains.
 - A real installation (22.11): the `GROUP BY` over an `ALIAS` column answered through the server, equal to the same
   query grouped by the stored column.
 - The running guide's own-image recipe built on the 0.6.0 image: a good configuration builds, a broken one stops it.
+- The importer's selection: 16 mutations, all caught; on a real project (scratch copy), `select: [tag:<its daily
+  run's tag>]` left out exactly the models its scheduler never builds.
 
 ## Decided (`dev/DECISIONS.md`)
 
 This sitting: what the old data agent had (lineage, SQL, a metadata filter and its menu, `narrowed_by`); a large table
 read alone in its SELECT, alias names no bound on ClickHouse; ClickHouse before 24.3 — the tree as parsed read too, by
-the interpreter's rules — the agent, at the author's word ("do everything").
+the interpreter's rules; the dbt importer choosing tables as dbt selects them — the agent, at the author's word ("do
+everything"; "our wants made to work in the library, optionally").
 
 ## Next step
 
-1. Tag `v0.6.1` when pushed (the author said push: done with this commit).
+1. Tag `v0.7.0` with this commit (the author said push).
 2. Milestone 5's rest (`dev/PLAN.md`): the self-check at start. Then milestone 6, metrics.
-3. From a company's use, for the author to decide (general terms): the dbt importer choosing models by dbt tag or path
-   (not only by table pattern); telling agents a table stopped being refreshed (its last change); who is asking, carried
-   to the database's query log behind a gateway.
+3. From a company's use, for the author to decide (general terms): telling agents a table stopped being refreshed (its
+   last change); who is asking, carried to the database's query log behind a gateway.
 4. Later, from the second readers: a `narrowed_by` / `bound_by` column the table lacks named at start; `dictGet` /
    `joinGet` and views stay the guard's alone (the engine's readings do not name what is behind them).
 
