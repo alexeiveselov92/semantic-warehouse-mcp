@@ -96,6 +96,8 @@ The engine production work runs on (the author, 2026-10-24) — moved up from "t
       BigQuery and Snowflake put off (the author, 2026-10-25: "enough of the databases there are for now") — in Later.
 - [ ] The self-check at start: probes with known verdicts run through the guard and the engine's own parser; a
       dialect either misreads is refused, not trusted.
+- [ ] ClickHouse before 24.3: a `GROUP BY` over an `ALIAS` column fails the resolved tree (Code 215) while the query
+      runs — refused as `engine_parse`. Another reading of the tables a query reads on those servers, as strict.
 
 ## Milestone 6. Metrics — 2 sessions
 

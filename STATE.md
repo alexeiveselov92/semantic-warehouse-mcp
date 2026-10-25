@@ -55,8 +55,13 @@ filter and its menu; `narrowed_by`); a large table read alone in its SELECT, and
 ## Next step
 
 1. The author: push `main` and tag `v0.6.0` (publishes PyPI and the image; the site redeploys).
-2. Milestone 5's rest (`dev/PLAN.md`): the self-check at start. Then milestone 6, metrics.
-3. Later, from the second reader: a `narrowed_by` / `bound_by` column the table lacks could be named at start (today
+2. **ClickHouse before 24.3: a GROUP BY over an `ALIAS` column is refused** (`engine_parse`): the query runs, but the
+   resolved tree the server asks for (`EXPLAIN QUERY TREE run_passes = 1`) fails with Code 215 `NOT_AN_AGGREGATE` —
+   reproduced on 22.11 in a container; found by a real installation's raw event log, whose per-event fields are
+   `ALIAS` columns (`countIf(alias = …)` passes; grouping by the stored column works round it). Needs another reading
+   of the tables a query reads on those servers, as strict — with a second reader.
+3. Milestone 5's rest (`dev/PLAN.md`): the self-check at start. Then milestone 6, metrics.
+4. Later, from the second reader: a `narrowed_by` / `bound_by` column the table lacks could be named at start (today
    every query over it is refused, naming the column).
 
 ## What the author needs to do
