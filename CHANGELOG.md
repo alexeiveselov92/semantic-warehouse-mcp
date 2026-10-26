@@ -4,6 +4,8 @@ One line per change, newest on top: `YYYY-MM-DD — what was done`.
 
 ---
 
+2026-10-26 — **0.8.1**: a `GET` of the MCP endpoint answered `405` at once
+2026-10-26 — Streamable HTTP: a `GET` of the MCP endpoint — a client asking for a stream of the server's own messages — is answered `405` (`Allow: POST`) at once, inside the token check, instead of being held open and empty by the SDK until the client gave up (measured: 8 s, the client's timeout); a gateway gathering its backends' streams waited on it
 2026-10-25 — **0.8.0**: a draft of a semantic model from the database itself, for a database no dbt project describes
 2026-10-25 — `semantic-warehouse-mcp import-database`: a draft Ossie document from a connection's own catalog — its readable tables and views, their columns, the database's comments as descriptions, date and time columns marked by their type; nothing guessed, nothing `readable` leaves out, an edited draft never overwritten (`--overwrite`); the connection reached without its semantic models, so the configuration may already name the draft; `--tables`, `--fields described`; measured on a real warehouse — 263 tables, 5,776 columns drafted in 28 s and bound to the live database
 2026-10-25 — the dbt importer's document writer shared with the database importer (`write_document`)

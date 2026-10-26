@@ -501,3 +501,13 @@ guessed meaning, no primary keys or relationships the catalog does not hold as s
 team's to write, by hand or by an agent through this server. The connection is reached without its semantic models,
 context and skills, so a configuration may name the draft before it exists. An existing file is never overwritten
 unless told: a draft is meant to be edited. A command of its own beside `import-dbt`, not a tool: it writes a file.
+
+## 2026-10-26 · A GET of the MCP endpoint is answered 405 at once
+
+**The company's gateway** (an installation's devops, putting the server behind their MCP gateway): a backend offering
+no stream must answer a `GET` of its MCP endpoint `405` at once. Measured: left to the SDK (stateless, JSON answers), the
+`GET` was answered `200` and held open, empty, until the client gave up (8 s, its timeout) — while a `POST` answered in
+milliseconds. Streamable HTTP allows a server exactly two answers to that `GET`: a stream, or `405`. A stateless server
+never sends anything it was not asked for, so its stream would only ever be empty. Decided (the agent, at the author's
+"yes"): the server answers it `405` with `Allow: POST` before the SDK sees it, inside the token check — a request
+without the token is still `401`. The sibling, repo-reader-mcp, takes the same.

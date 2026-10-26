@@ -26,6 +26,10 @@ UNAUTHORIZED_HEADERS = [
     (b"content-type", b"application/json"),
     (b"www-authenticate", b'Bearer realm="semantic-warehouse-mcp"'),
 ]
+NO_STREAM = json.dumps(
+    {"error": "method_not_allowed", "note": "Stateless: no stream of the server's own messages is offered. POST only."}
+).encode()
+NO_STREAM_HEADERS = [(b"content-type", b"application/json"), (b"allow", b"POST")]
 
 
 class HttpProblem(Exception):
@@ -57,7 +61,26 @@ def app(server: MCPServer, *, path: str, token: str | None, host: str) -> Any:
         return JSONResponse({"status": "ok", "name": "semantic-warehouse-mcp", "version": __version__})
 
     served = server.streamable_http_app(streamable_http_path=path, stateless_http=True, json_response=True, host=host)
+    served = _NoStream(served, path)
     return _Bearer(served, token) if token else served
+
+
+class _NoStream:
+    """Answers a GET of the MCP path `405` at once. A client's GET asks for a stream of the server's own messages, and
+    Streamable HTTP lets a server answer it either with the stream or with 405 — "none here". Stateless, this server
+    sends nothing it was not asked for; left to the SDK, the GET would be held open, empty, until the client gives up —
+    and a gateway that gathers its backends' streams waits on it."""
+
+    def __init__(self, inner: Any, path: str) -> None:
+        self.inner = inner
+        self.path = path
+
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+        if scope["type"] == "http" and scope["method"] == "GET" and scope["path"] == self.path:
+            await send({"type": "http.response.start", "status": 405, "headers": NO_STREAM_HEADERS})
+            await send({"type": "http.response.body", "body": NO_STREAM})
+            return
+        await self.inner(scope, receive, send)
 
 
 class _Bearer:

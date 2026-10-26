@@ -52,6 +52,9 @@ semantic-warehouse-mcp --config config.yaml --http --host 0.0.0.0 --port 8000 --
   that a database outage does not turn into restarts.
 - **Stateless.** Each request is answered on its own, one JSON answer each: any number of copies of the server can sit
   behind one address, and a client may reach any of them.
+- **POST only.** A `GET` of the MCP endpoint — a client asking for a stream of the server's own messages — is answered
+  `405` at once (`Allow: POST`), as Streamable HTTP lets a server say it offers none: the server sends nothing it was
+  not asked for, and a gateway gathering its backends' streams is not left waiting on an empty one.
 
 An agent connects with the endpoint and the header — Claude Code:
 

@@ -73,7 +73,18 @@ def test_a_request_without_the_token_is_refused(served, token):
     assert TOKEN not in answer.text
 
 
-@pytest.mark.parametrize("path", ["/HEALTH", "//health", "/health/../mcp", "/health/", "/mcp/", "/elsewhere"])
+@pytest.mark.parametrize("token", [TOKEN, None])
+@pytest.mark.parametrize("accept", ["text/event-stream", "application/json, text/event-stream", None])
+def test_a_get_of_the_mcp_path_is_answered_at_once_with_no_stream(served, token, accept):
+    """Stateless, the server sends nothing it was not asked for: a GET asking for a stream of its own messages is
+    answered 405 at once — never held open, empty, which a gateway gathering its backends' streams waits on."""
+    headers = ({"Authorization": f"Bearer {token}"} if token else {}) | ({"Accept": accept} if accept else {})
+    with httpx.stream("GET", f"{served(token=token)}/mcp", headers=headers, timeout=5) as answer:
+        assert answer.status_code == 405 and answer.headers["allow"] == "POST"
+        assert "POST only" in answer.read().decode()
+
+
+@pytest.mark.parametrize("path", ["/HEALTH", "//health", "/health/../mcp", "/health/", "/mcp", "/mcp/", "/elsewhere"])
 def test_only_the_health_check_itself_goes_without_the_token(served, path):
     answer = httpx.get(f"{served()}{path}")
     assert answer.status_code == 401, path
