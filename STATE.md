@@ -57,20 +57,24 @@ Not changed: `list_datasets`, the Ossie wrapper of a field's own metadata.
 
 ## Next step
 
-1. Measured next: choosing fields in `describe_dataset` — what is left of the gap to the agent is a table answered
-   whole where the agent selects columns by SQL.
-2. Milestone 5's rest (`dev/PLAN.md`): the self-check at start. Then milestone 6, metrics (`dev/DESIGN.md`,
+1. **A silent loss, found in a company's use:** on ClickHouse a query `… WITH TOTALS` is answered without its totals
+   row, and nothing says so — the answer's row format (`JSONCompactEachRowWithNamesAndTypes`) carries no totals. Refuse
+   it with a clear reason, or carry the totals; a test that fails when it is dropped silently.
+2. Measured next: choosing fields in `describe_dataset` — what is left of the gap to the agent is a table answered
+   whole where the agent selects columns by SQL; a company's widest tables, with its own metadata on every column,
+   came within 1,000 characters of the answer limit.
+3. Milestone 5's rest (`dev/PLAN.md`): the self-check at start. Then milestone 6, metrics (`dev/DESIGN.md`,
    "Populations, filters and metric definitions") — a company's registry studied as its first check.
-3. From a company's use, for the author to decide (general terms): `readable` cannot leave tables out of a pattern;
+4. From a company's use, for the author to decide (general terms): `readable` cannot leave tables out of a pattern;
    telling agents a table stopped being refreshed (its last change); who is asking, carried to the database's query
    log behind a gateway; an agent twice called `describe_dataset` naming the table under another argument than
    `dataset` (refused by validation) — whether to say so more plainly.
-4. Later, from the second readers: a `narrowed_by` / `bound_by` column the table lacks named at start; `dictGet` /
+5. Later, from the second readers: a `narrowed_by` / `bound_by` column the table lacks named at start; `dictGet` /
    `joinGet` and views stay the guard's alone.
 
 ## What the author needs to do
 
-1. Decide item 3 of the next step; whether `instructions_in_run_query` should be on by default.
+1. Decide item 4 of the next step; whether `instructions_in_run_query` should be on by default.
 2. For the container tests locally, Docker running.
 
 ## Don't
