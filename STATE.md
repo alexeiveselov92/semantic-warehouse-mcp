@@ -4,12 +4,12 @@
 
 **Updated:** 27 October 2026.
 
-**Released: 0.6.0 – 0.8.1** (PyPI, GHCR, the site). **0.8.1** (2026-10-26): a `GET` of the MCP endpoint answered `405`
+**Released: 0.6.0 – 0.9.0** (PyPI, GHCR, the site). **0.8.1** (2026-10-26): a `GET` of the MCP endpoint answered `405`
 at once — an installation's MCP gateway waited on the empty stream the SDK held open, and hung the whole route for
 everyone on it; image `0.8.1` is the index `sha256:d8b1b800…ba20`; the sibling repo-reader-mcp took the same as 0.3.1.
-**Tagged now: 0.9.0** — from measuring the server against a company's own data agent on the same questions: the team's
-rules through any gateway (`instructions_in_run_query`), a lighter `describe_dataset` (`full`), the metric tools only
-where a model defines metrics. **The site is live at https://swm.pipelab.dev.** Milestones 0–4 done; **current:
+**0.9.0** (2026-10-27; image index `sha256:703c8112…`) — from measuring the server against a company's own data agent
+on the same questions: the team's rules through any gateway (`instructions_in_run_query`), a lighter `describe_dataset`
+(`full`), the metric tools only where a model defines metrics. **The site is live at https://swm.pipelab.dev.** Milestones 0–4 done; **current:
 milestone 5** — PostgreSQL, MySQL, ClickHouse before 24.3 and the measurement done, BigQuery and Snowflake put off by
 the author, the self-check at start remains.
 
@@ -34,9 +34,9 @@ the author, the self-check at start remains.
 
 ## How it was verified
 
-- 0.9.0 (before the rebase onto 0.8.1): 830 tests pass, none skipped (ClickHouse 25.8 and 22.11, PostgreSQL 17, MySQL
-  8.4 in containers); ruff clean; the site builds; 12 mutations, all caught (a text measured by its JSON length — a
-  re-read found it, fixed). After the rebase: the suite run again before the tag.
+- 0.9.0: 837 tests pass, none skipped (ClickHouse 25.8 and 22.11, PostgreSQL 17, MySQL 8.4 in containers), rebased on
+  0.8.1; ruff clean; the site builds; 12 mutations, all caught (a text measured by its JSON length — a re-read found
+  it, fixed); CI, PyPI, GHCR and the site green.
 - 0.8.1: the `GET` → `405` test removed-and-run: all 6 of its cases fail at once; the published package served over
   HTTP: `GET /mcp` `405` with `Allow: POST` in 0.5 ms, `POST` `200`.
 - **Against a company's data agent** (`dev/DECISIONS.md`, 2026-10-27; the company's own record holds the numbers and
@@ -44,7 +44,8 @@ the author, the self-check at start remains.
   independent direct query. Per question (medians): the agent 25 s, 10 turns, 1×; 0.8.0 behind the gateway 24 s, 14.5
   turns, 1.7×, 19/24 by the team's rules; 0.9.0 (working tree, stdio, instructions stripped as the gateway strips
   them) 23 s, 11.5 turns, 1.4×, 24/24. With a real client: no instructions in the prompt, the local-time rule quoted
-  from `run_query`'s description, `list_metrics` absent.
+  from `run_query`'s description, `list_metrics` absent. **Then the published 0.9.0 deployed at that company, behind
+  its gateway, the same 24 runs: 24/24, 23 s, 10 turns, 1.4×** — the gateway passes `run_query`'s description whole.
 - Claude Code passes a tool description of 15,000 characters whole (a probe server) — what option 1 rests on.
 
 ## Decided (`dev/DECISIONS.md`)
@@ -56,21 +57,20 @@ Not changed: `list_datasets`, the Ossie wrapper of a field's own metadata.
 
 ## Next step
 
-1. **0.9.0's publish checked** (PyPI, GHCR, the site), then the company's use: its pin to 0.9.0 and
-   `instructions_in_run_query: true` in its configuration (its own repository says the deploy).
-2. Measured next: choosing fields in `describe_dataset` — what is left of the gap to the agent is a table answered
+1. Measured next: choosing fields in `describe_dataset` — what is left of the gap to the agent is a table answered
    whole where the agent selects columns by SQL.
-3. Milestone 5's rest (`dev/PLAN.md`): the self-check at start. Then milestone 6, metrics (`dev/DESIGN.md`,
+2. Milestone 5's rest (`dev/PLAN.md`): the self-check at start. Then milestone 6, metrics (`dev/DESIGN.md`,
    "Populations, filters and metric definitions") — a company's registry studied as its first check.
-4. From a company's use, for the author to decide (general terms): `readable` cannot leave tables out of a pattern;
+3. From a company's use, for the author to decide (general terms): `readable` cannot leave tables out of a pattern;
    telling agents a table stopped being refreshed (its last change); who is asking, carried to the database's query
-   log behind a gateway.
-5. Later, from the second readers: a `narrowed_by` / `bound_by` column the table lacks named at start; `dictGet` /
+   log behind a gateway; an agent twice called `describe_dataset` naming the table under another argument than
+   `dataset` (refused by validation) — whether to say so more plainly.
+4. Later, from the second readers: a `narrowed_by` / `bound_by` column the table lacks named at start; `dictGet` /
    `joinGet` and views stay the guard's alone.
 
 ## What the author needs to do
 
-1. Decide item 4 of the next step; whether `instructions_in_run_query` should be on by default.
+1. Decide item 3 of the next step; whether `instructions_in_run_query` should be on by default.
 2. For the container tests locally, Docker running.
 
 ## Don't
