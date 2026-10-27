@@ -129,6 +129,8 @@ The engine production work runs on (the author, 2026-10-24) — moved up from "t
 - [x] Ahead of it, for a company's deployment (2026-10-24): Streamable HTTP (`--http`, a token by variable name,
       `/health`, stateless), the image (`Dockerfile`, non-root, read-only root filesystem) and its workflow (built on
       every change, published to GHCR for a `v*` tag) — `docs/reference/running.md`.
+- [x] Behind a company's MCP gateway: a `GET` of the endpoint answered `405` at once (the gateway waited on the empty
+      stream the SDK held open). ✅ 2026-10-26 — 0.8.1; the sibling repo-reader-mcp 0.3.1 the same.
 
 - [ ] In pipelab: an instance of the server (its image from GHCR, `/mcp` routed with no redirect, a token or the
       organisation's gateway in front), its `deploy-*.yml`, secrets prefixed in GitHub — for the author's own use and a

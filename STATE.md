@@ -4,8 +4,10 @@
 
 **Updated:** 26 October 2026.
 
-**Released: 0.6.0 – 0.8.0** (PyPI, GHCR, the site); **0.8.1 tagged with this commit** — a `GET` of the MCP endpoint
-answered `405` at once (an installation's MCP gateway waited on the empty stream the SDK held open). 0.6.0: lineage and
+**Released: 0.6.0 – 0.8.1** (PyPI, GHCR, the site). **0.8.1** (2026-10-26): a `GET` of the MCP endpoint answered `405`
+at once — an installation's MCP gateway waited on the empty stream the SDK held open, and hung the whole route for
+everyone on it; image `0.8.1` is the index `sha256:d8b1b800…ba20`; the sibling repo-reader-mcp took the same as 0.3.1.
+The installation that found it runs 0.8.0 behind a wrapper of its own for now; its move to 0.8.1 is its own. 0.6.0: lineage and
 SQL from dbt, a metadata filter and its menu, `narrowed_by`, the guard hardened by a second reader; 0.6.1: ClickHouse
 before 24.3 — a `GROUP BY` over an `ALIAS` column answered; 0.7.0: the dbt importer chooses tables as dbt selects them;
 0.8.0: `import-database`, a draft model from a database's own catalog. **The site is live at https://swm.pipelab.dev.**
@@ -35,9 +37,10 @@ and Snowflake put off by the author, the self-check at start remains.
 
 ## How it was verified
 
-- 0.8.1: locally 680 tests pass, 152 skipped (Docker was not running: the container engines run in CI); ruff clean;
-  the site builds. The `GET` → `405` test removed-and-run: all 6 of its cases fail at once (not hang, not error).
-  The SDK's own client, which opens that `GET` after it connects, still serves through it.
+- 0.8.1: locally 680 tests pass, 152 skipped (Docker was not running); CI green with every engine in containers;
+  ruff clean; the site builds. The `GET` → `405` test removed-and-run: all 6 of its cases fail at once (not hang, not
+  error). The SDK's own client, which opens that `GET` after it connects, still serves through it. The published
+  package itself, served over HTTP: `GET /mcp` `405` with `Allow: POST` in 0.5 ms, `POST` `200`, `/health` 0.8.1.
 - Before (0.8.0): 825 tests, none skipped, ClickHouse 25.8 and 22.11, PostgreSQL 17, MySQL 8.4 in containers; the
   22.11 reading's 28 mutations (27 caught, the survivor a redundant condition, removed), refuted by a second reader;
   the importer's selection 16 mutations, the database importer 11, all caught; a real warehouse drafted (263 tables,
@@ -51,18 +54,17 @@ read by the interpreter's rules; the dbt importer choosing as dbt selects; a dra
 
 ## Next step
 
-1. See 0.8.1's release green (PyPI, GHCR); the installation moves its pin to it.
-2. Milestone 5's rest (`dev/PLAN.md`): the self-check at start. Then milestone 6, metrics (`dev/DESIGN.md`,
+1. Milestone 5's rest (`dev/PLAN.md`): the self-check at start. Then milestone 6, metrics (`dev/DESIGN.md`,
    "Populations, filters and metric definitions") — a company's registry studied as its first check.
-3. From a company's use, for the author to decide (general terms): `readable` cannot leave tables out of a pattern
+2. From a company's use, for the author to decide (general terms): `readable` cannot leave tables out of a pattern
    (an exclusion, `!pattern`, optional); telling agents a table stopped being refreshed; who is asking, carried to the
    database's query log behind a gateway.
-4. Later, from the second readers: a `narrowed_by` / `bound_by` column the table lacks named at start; `dictGet` /
+3. Later, from the second readers: a `narrowed_by` / `bound_by` column the table lacks named at start; `dictGet` /
    `joinGet` and views stay the guard's alone.
 
 ## What the author needs to do
 
-1. Decide item 3 of the next step.
+1. Decide item 2 of the next step.
 2. For the container tests locally, Docker running.
 
 ## Don't
@@ -78,6 +80,7 @@ read by the interpreter's rules; the dbt importer choosing as dbt selects; a dra
 - Don't trust the analyzer's tree on a ClickHouse whose analyzer does not run queries as the reading of what runs.
 - Don't rephrase a model's descriptions, instructions, documents or skills — serve them as written.
 - Don't serve over HTTP without a token anywhere but loopback; don't let a token reach git's command line.
+- Don't let a request be held open with nothing to send: a gateway in front waits on every backend of its route.
 - Don't tag a version that is not `pyproject.toml`'s; don't publish `latest` for the server's image.
 - Don't point `SWM_TEST_*_URL` at a real server: the tests rebuild `swm_*` databases there.
 - Keep the landing page's panels true: they are the server's real answers on the made-up shop.

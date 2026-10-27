@@ -4,6 +4,7 @@ One line per change, newest on top: `YYYY-MM-DD — what was done`.
 
 ---
 
+2026-10-26 — 0.8.1 released (PyPI, GHCR) and checked on the published package: `GET /mcp` `405` in 0.5 ms, `POST` `200`
 2026-10-26 — **0.8.1**: a `GET` of the MCP endpoint answered `405` at once
 2026-10-26 — Streamable HTTP: a `GET` of the MCP endpoint — a client asking for a stream of the server's own messages — is answered `405` (`Allow: POST`) at once, inside the token check, instead of being held open and empty by the SDK until the client gave up (measured: 8 s, the client's timeout); a gateway gathering its backends' streams waited on it
 2026-10-25 — **0.8.0**: a draft of a semantic model from the database itself, for a database no dbt project describes
