@@ -80,8 +80,9 @@ Without any semantic model, the list is empty and `note` says so.
 
 ## `describe_dataset`
 
-One dataset in full, as the team wrote it. Takes `dataset` (its name), and `connection` and `model` (optional — needed
-only when two models have a dataset of that name; the error names them). Answers:
+One dataset in full, as the team wrote it. Takes `dataset` (its name), `connection` and `model` (optional — needed
+only when two models have a dataset of that name; the error names them), and `full` (optional, `false` — see below).
+Answers:
 
 | Field | What |
 |---|---|
@@ -93,14 +94,29 @@ only when two models have a dataset of that name; the error names them). Answers
 | `other_columns` | the table's columns no field is: `name`, `type`, `nullable`, `comment` |
 | `vocabulary` | what each own metadata key and value used — by the dataset, its fields, metrics and relationships — means |
 | `fields` | every field as written (`expression` per dialect, `dimension`, `datatype`, `description`, `ai_context`, `custom_extensions`), with `column` — the live column's `type`, `nullable` and `comment` — when the field's expression is just that column's name |
+| `note` | what was made shorter, when anything was |
 
-A field's expression may be a calculation over columns (`amount - refunded_amount`): it then has no `column`, and the
-columns it reads are in `other_columns`. An answer too long for `answer_characters` is made smaller before a field is
-left out — `other_columns` to names only, own metadata texts longer than 2000 characters cut (a model's SQL, written
-by the [dbt importer](dbt-importer.md)'s `dbt_code`), then `other_columns`, `relationships`, `metrics` and
-`vocabulary` left out, in that order — and `note` says what was.
+A field whose expression is nothing but its own name, in every dialect written (a field `order_date` that is the
+column `order_date`), comes without `expression`: it is the column of that name, and saying so again for each of a
+hundred fields would only lengthen the answer. A field's expression may be a calculation over columns
+(`amount - refunded_amount`): it then has no `column`, and the columns it reads are in `other_columns`.
+
+**Own metadata is shortened unless asked for in full.** A value of the team's own metadata longer than 1000
+characters as JSON — a model's SQL (the [dbt importer](dbt-importer.md)'s `dbt_code`), a long list of what a table is
+built from — is made short: a text to its first 1000 characters, ending in `…`; a list or a mapping to a note of its
+length, `… (4210 characters as JSON)`. `note` says so. Such values matter for how a table is built, rarely for what it
+holds, and an agent rereads every answer at each step of its work — so they are served when asked for: `full: true`
+serves every value whole.
+
+An answer too long for `answer_characters` is made smaller before a field is left out — `other_columns` to names
+only, own metadata texts longer than 2000 characters cut (with `full: true`), then `other_columns`, `relationships`,
+`metrics` and `vocabulary` left out, in that order — and `note` says what was.
 
 ## `list_metrics`
+
+Offered, with `describe_metric`, only when a semantic model defines a metric — its own or a dataset's. Where none does,
+neither tool is listed and the server's instructions do not name them: a tool that could only answer that there are
+no metrics would cost an agent a step in every conversation.
 
 The metrics of the semantic models: how the team defines its numbers. Takes `connection`, `search` and `metadata` (all
 optional, as in `list_datasets`; a metric holds own metadata itself, having no fields). Answers each metric's `connection`, `model`, `metric` (its name), `dataset` (for a dataset's
@@ -129,6 +145,8 @@ used, however many.
 ```
 
 ## `describe_metric`
+
+Offered only when a semantic model defines a metric, as `list_metrics` is.
 
 One metric in full, as the team wrote it. Takes `metric` (its name), `dataset` (for a dataset's own metric), and
 `connection` and `model` (optional — when two models define a metric of that name). Answers `connection`, `model`,

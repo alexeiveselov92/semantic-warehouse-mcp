@@ -10,7 +10,7 @@ import pytest
 from conftest import write_config
 from mcp import Client
 
-from semantic_warehouse_mcp import answers, semantic, vocabulary
+from semantic_warehouse_mcp import answers, semantic, server, vocabulary
 from semantic_warehouse_mcp.config import ConfigError, load
 from semantic_warehouse_mcp.server import build_server, main, start_log
 
@@ -463,6 +463,50 @@ def test_a_lists_description_is_its_first_line_within_200_characters():
     assert semantic.first_line("short") == "short"
 
 
+def test_own_metadata_is_shortened_by_its_own_length():
+    """A text by its characters — quotes and line breaks JSON would escape do not make it long — a list or a mapping
+    by its length as JSON; a vendor's data that is no mapping is one value; short values as written."""
+    quoted = '"line"\n' * 142 + "abcdef"  # 1000 characters, 1290 as JSON
+    assert len(quoted) == 1000
+    long_list = [f"item_{i}" for i in range(200)]
+    extensions = [
+        {
+            "vendor_name": "acme",
+            "data": {"sql": quoted, "longer": quoted + "g", "built_from": long_list, "tags": ["x"]},
+        },
+        {"vendor_name": "OTHER", "data": "t" * 1001},
+        {"vendor_name": "EMPTY"},
+    ]
+    made, shortened = server.shorten_metadata(extensions, 1000)
+    assert shortened
+    acme = made[0]["data"]
+    assert acme["sql"] == quoted  # 1000 characters: as written
+    assert acme["longer"] == quoted + "…"  # 1001: its first 1000, ending in …
+    assert acme["built_from"] == f"… ({len(answers.dumps(long_list))} characters as JSON)"
+    assert acme["tags"] == ["x"]
+    assert made[1] == {"vendor_name": "OTHER", "data": "t" * 1000 + "…"}
+    assert made[2] == {"vendor_name": "EMPTY"}
+    assert extensions[0]["data"]["longer"] == quoted + "g"  # the model itself untouched
+    assert server.shorten_metadata([], 1000) == ([], False)
+    short = [{"vendor_name": "acme", "data": {"sql": quoted}}]
+    assert server.shorten_metadata(short, 1000) == (short, False)
+
+
+def test_a_field_names_itself_only_when_every_dialect_is_its_name():
+    """Its expression is left out of describe_dataset only when nothing is lost: every dialect is the name itself."""
+
+    def field(*expressions):
+        dialects = [{"dialect": f"D{i}", "expression": text} for i, text in enumerate(expressions)]
+        return {"name": "amount", "expression": {"dialects": dialects}}
+
+    assert semantic.names_itself(field("amount"))
+    assert semantic.names_itself(field("amount", "amount"))
+    assert not semantic.names_itself(field("amount", "amount - refunded_amount"))
+    assert not semantic.names_itself(field("Amount"))  # another name, as written
+    assert not semantic.names_itself(field('"amount"'))
+    assert not semantic.names_itself({"name": "amount", "expression": {"dialects": []}})
+
+
 # --- bound to its connection ----------------------------------------------------------------------------------------
 
 
@@ -696,14 +740,44 @@ async def test_list_metadata_names_how_many_when_the_values_are_many_or_long(sho
 
 async def test_describe_dataset_cuts_long_own_metadata_before_a_field(shop):
     long = ("owner: billing", "owner: " + "b" * 3000)
-    answer, _ = await call(
-        shop(long, config=CONFIG + "limits: {answer_characters: 4000}\n"), "describe_dataset", dataset="orders"
-    )
+    config = shop(long, config=CONFIG + "limits: {answer_characters: 4000}\n")
+    answer, _ = await call(config, "describe_dataset", dataset="orders", full=True)
     assert len(answers.dumps(answer)) <= 4000
     assert [field["name"] for field in answer["fields"]] == ["order_id", "net_amount"]
     owner = next(e for e in answer["custom_extensions"] if e["vendor_name"] == "acme")["data"]["owner"]
     assert owner == "b" * 2000 + "…"
     assert "own metadata texts longer than 2000 characters cut, each ending in …" in answer["note"]
+
+
+async def test_describe_dataset_shortens_long_own_metadata_unless_asked_in_full(shop):
+    """A long own metadata value — a text, a list — is made short by default and says so; `full` serves it whole."""
+    built_from = [f"marts.source_{i}" for i in range(80)]
+    long = (
+        ("owner: billing", "owner: " + "b" * 3000 + ", built_from: [" + ", ".join(built_from) + "]"),
+        ("{tags: [identifier]}", "{tags: [identifier], owner: " + "c" * 1001 + "}"),
+    )
+    vocabulary = VOCABULARY.replace("keys:", "unknown_keys: allow\nkeys:")
+    config = shop(*long, vocabulary=vocabulary)
+
+    answer, _ = await call(config, "describe_dataset", dataset="orders")
+    acme = next(e for e in answer["custom_extensions"] if e["vendor_name"] == "acme")["data"]
+    assert acme["owner"] == "b" * 1000 + "…"
+    assert acme["built_from"] == f"… ({len(answers.dumps(built_from))} characters as JSON)"
+    assert acme["tags"] == ["sales"] and acme["layer"] == "mart"  # short values as written
+    assert answer["fields"][0]["custom_extensions"][0]["data"]["owner"] == "c" * 1000 + "…"  # a field's too
+    assert answer["note"] == (
+        "Own metadata values longer than 1000 characters are shortened — a text to its beginning, ending in …, a list "
+        "or a mapping to a note of its length: `full: true` serves them whole."
+    )
+
+    answer, _ = await call(config, "describe_dataset", dataset="orders", full=True)
+    acme = next(e for e in answer["custom_extensions"] if e["vendor_name"] == "acme")["data"]
+    assert acme["owner"] == "b" * 3000 and acme["built_from"] == built_from
+    assert answer["fields"][0]["custom_extensions"][0]["data"]["owner"] == "c" * 1001
+    assert "note" not in answer
+
+    answer, _ = await call(shop(), "describe_dataset", dataset="orders")
+    assert "note" not in answer  # nothing long, nothing said
 
 
 async def test_describe_dataset(shop):
@@ -718,6 +792,7 @@ async def test_describe_dataset(shop):
     assert answer["table"] == {"name": "marts.orders", "kind": "table", "comment": "One row per paid order."}
     order_id, net_amount = answer["fields"]
     assert order_id["column"] == {"type": "VARCHAR", "nullable": True}  # the field is the column: its type beside
+    assert "expression" not in order_id  # nothing but its own name: the column of that name, said once
     assert "column" not in net_amount  # a calculation, not one column
     assert net_amount["expression"] == {"dialects": [{"dialect": "ANSI_SQL", "expression": "amount - refunded_amount"}]}
     assert [c["name"] for c in answer["other_columns"]] == [
@@ -748,21 +823,21 @@ async def test_describe_dataset_of_a_large_table_shows_its_bound(shop):
 async def test_describe_dataset_keeps_its_fields_within_the_answer_limit(shop):
     """Parts of the answer are made smaller, in turn, before a field is left out; the note says which."""
     answer, _ = await call(
-        shop(config=CONFIG + "limits: {answer_characters: 1600}\n"), "describe_dataset", dataset="orders"
-    )
-    assert len(answers.dumps(answer)) <= 1600
-    assert answer["other_columns"] == ["order_date", "customer_id", "currency", "amount", "refunded_amount"]
-    assert answer["note"] == "To fit the answer (1600 characters): `other_columns` holds names only."
-
-    answer, _ = await call(
         shop(config=CONFIG + "limits: {answer_characters: 1500}\n"), "describe_dataset", dataset="orders"
     )
     assert len(answers.dumps(answer)) <= 1500
+    assert answer["other_columns"] == ["order_date", "customer_id", "currency", "amount", "refunded_amount"]
+    assert answer["note"] == "To fit the answer (1500 characters): `other_columns` holds names only."
+
+    answer, _ = await call(
+        shop(config=CONFIG + "limits: {answer_characters: 1400}\n"), "describe_dataset", dataset="orders"
+    )
+    assert len(answers.dumps(answer)) <= 1400
     assert [field["name"] for field in answer["fields"]] == ["order_id", "net_amount"]
     assert "other_columns" not in answer and "relationships" not in answer
     assert answer["metrics"] and answer["vocabulary"]
     assert answer["note"] == (
-        "To fit the answer (1500 characters): `other_columns` holds names only; `other_columns` left out "
+        "To fit the answer (1400 characters): `other_columns` holds names only; `other_columns` left out "
         "(describe_table shows them); `relationships` left out."
     )
 
@@ -783,6 +858,26 @@ async def test_list_metrics(shop):
     }
     answer, _ = await call(shop(), "list_metrics", search="count")
     assert [m["metric"] for m in answer["metrics"]] == ["order_count"]
+
+
+async def test_the_metric_tools_are_offered_only_where_a_model_defines_a_metric(shop):
+    """Where no model defines a metric, the metric tools are not listed and the instructions do not name them."""
+    with_metrics = shop()
+    async with Client(build_server(with_metrics)) as client:
+        names = {tool.name for tool in (await client.list_tools()).tools}
+        assert {"list_metrics", "describe_metric"} <= names
+        assert "`list_metrics` and `describe_metric`" in client.instructions
+
+    own_metric = (
+        "    metrics:\n      - name: order_count\n"
+        "        expression: {dialects: [{dialect: ANSI_SQL, expression: COUNT(order_id)}]}\n"
+    )
+    without = shop((own_metric, ""), (MODEL[MODEL.index("metrics:\n  - name: revenue") :], ""))
+    async with Client(build_server(without)) as client:
+        names = {tool.name for tool in (await client.list_tools()).tools}
+        assert "list_metrics" not in names and "describe_metric" not in names
+        assert {"list_datasets", "describe_dataset", "list_metadata", "run_query"} <= names
+        assert "list_metrics" not in client.instructions and "describe_metric" not in client.instructions
 
 
 async def test_describe_metric_names_what_it_reads(shop):

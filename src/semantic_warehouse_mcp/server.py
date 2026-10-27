@@ -27,34 +27,62 @@ READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False)
 
 CONFIG_VARIABLE = "SEMANTIC_WAREHOUSE_MCP_CONFIG"
 
-# `describe_dataset` cuts its own metadata's texts to this many characters before it leaves out any field.
+# `describe_dataset` shortens each own metadata value longer than this many characters, unless asked for it in full.
+SHORT_METADATA = 1000
+# `describe_dataset`, asked for its own metadata in full, cuts its texts to this many characters before it leaves out
+# any field.
 LONG_TEXT = 2000
 # `list_metadata` lists each value of a key with at most this many values, none longer than this many characters.
 MENU_VALUES = 50
 MENU_TEXT = 100
 LOG_NAMES = 5  # the datasets left out the start's log names; `--check` names every one
 
-INSTRUCTIONS = (
-    "semantic-warehouse-mcp answers questions about data in SQL databases, and never changes them. "
-    "Start with `list_connections`. Where a connection has a semantic model, find the data in it first: "
-    "`list_datasets` and `describe_dataset` (what each table means, its fields, keys and relationships, the team's own "
-    "metadata with what its values mean), `list_metrics` and `describe_metric` (how a number is defined) — use a "
-    "metric's definition rather than writing your own. `list_metadata` shows the values of the team's own metadata "
-    "(its categories, layers, …), which `list_datasets` and `list_metrics` filter by. `list_tables` and "
-    "`describe_table` show every readable table as the database holds it. `run_query` runs one read-only SELECT. Each "
-    "query is checked first: a refusal says why and how to fix it. A large table must be read alone in its SELECT "
-    "(joined as a subquery of its own), bounded by its column, and some held to named values of another (shown in "
-    "`list_connections`, `describe_dataset` and `describe_table`). "
-    "The team that runs this server may give instructions (below, and in `list_connections`), context documents "
-    "(`list_context`, `get_context`) and skills — how it does a kind of task (`list_skills`, `get_skill`): read the "
-    "ones that bear on the question before querying. "
-    "Every answer carries the SQL as it ran and the time — cite them."
+# `run_query`'s description, when the configuration asks it to carry the server's instructions, leads them in with this.
+CARRIED = (
+    "The instructions this server gives a client when it connects follow — here too, because some clients and "
+    "gateways do not pass them on. Read them before the first query."
 )
+
+
+def own_instructions(metrics: bool) -> str:
+    """The server's own instructions. The metric tools are named only where a model defines a metric: elsewhere they
+    are not offered."""
+    return (
+        "semantic-warehouse-mcp answers questions about data in SQL databases, and never changes them. "
+        "Start with `list_connections`. Where a connection has a semantic model, find the data in it first: "
+        "`list_datasets` and `describe_dataset` (what each table means, its fields, keys and relationships, the team's "
+        "own metadata with what its values mean)"
+        + (
+            ", `list_metrics` and `describe_metric` (how a number is defined) — use a metric's definition rather than "
+            "writing your own"
+            if metrics
+            else ""
+        )
+        + ". `list_metadata` shows the values of the team's own metadata (its categories, layers, …), which "
+        + ("`list_datasets` and `list_metrics` filter by" if metrics else "`list_datasets` filters by")
+        + ". `list_tables` and `describe_table` show every readable table as the database holds it. `run_query` runs "
+        "one read-only SELECT. Each query is checked first: a refusal says why and how to fix it. A large table must "
+        "be read alone in its SELECT (joined as a subquery of its own), bounded by its column, and some held to named "
+        "values of another (shown in `list_connections`, `describe_dataset` and `describe_table`). "
+        "The team that runs this server may give instructions (below, and in `list_connections`), context documents "
+        "(`list_context`, `get_context`) and skills — how it does a kind of task (`list_skills`, `get_skill`): read "
+        "the ones that bear on the question before querying. "
+        "Every answer carries the SQL as it ran and the time — cite them."
+    )
+
+
+def defines_metrics(config: Config | None) -> bool:
+    """Whether any semantic model of the configuration defines a metric — its own or one of a dataset's."""
+    return any(
+        model.document.get("metrics") or any(dataset.get("metrics") for dataset in model.document["datasets"])
+        for connection in (config.connections.values() if config else ())
+        for model in connection.models
+    )
 
 
 def instructions(config: Config | None) -> str:
     """The server's instructions, and the team's own after them, as written: for every connection, then for each."""
-    parts = [INSTRUCTIONS]
+    parts = [own_instructions(defines_metrics(config))]
     if config and config.instructions:
         parts.append(f"Instructions for every connection:\n{config.instructions.strip()}")
     for connection in config.connections.values() if config else ():
@@ -63,9 +91,31 @@ def instructions(config: Config | None) -> str:
     return "\n\n".join(parts)
 
 
+def shorten_metadata(extensions: list, limit: int) -> tuple[list, bool]:
+    """Own metadata with each value longer than `limit` characters made short — a text longer than `limit` characters
+    to its first `limit`, ending in `…`; a list or a mapping longer than `limit` characters as JSON to a note of that
+    length — and whether any was. A vendor's data that is no mapping is one value."""
+
+    def short(value: Any) -> Any:
+        if isinstance(value, str):
+            return value if len(value) <= limit else value[:limit] + "…"
+        size = len(answers.dumps(value))
+        return value if size <= limit else f"… ({size} characters as JSON)"
+
+    made = []
+    for extension in extensions:
+        data = extension.get("data")
+        if isinstance(data, dict):
+            made.append({**extension, "data": {key: short(value) for key, value in data.items()}})
+        else:
+            made.append({**extension, "data": short(data)} if "data" in extension else extension)
+    return made, made != extensions
+
+
 def build_server(config: Config | None = None) -> MCPServer:
     """The server with its tools — built fresh, so tests and transports each get their own."""
-    server = MCPServer(name="semantic-warehouse-mcp", version=__version__, instructions=instructions(config))
+    said = instructions(config)
+    server = MCPServer(name="semantic-warehouse-mcp", version=__version__, instructions=said)
     connections = config.connections if config else {}
     server_context = config.context if config else ()
     server_skills = config.skills if config else ()
@@ -488,13 +538,18 @@ def build_server(config: Config | None = None) -> MCPServer:
         return listing("datasets", "dataset", items, bool(words), "describe_dataset", notes)
 
     @server.tool(annotations=READ_ONLY, structured_output=False)
-    def describe_dataset(dataset: str, connection: str | None = None, model: str | None = None) -> str:
+    def describe_dataset(
+        dataset: str, connection: str | None = None, model: str | None = None, full: bool = False
+    ) -> str:
         """One dataset of a semantic model in full, as the team wrote it: its source, keys, description,
         `ai_context`, its own metadata (`custom_extensions`); its fields, each with its expression — and the live
         column's type and comment when a field is one column; its own metrics; its relationships. Beside them: the
         source table as the database holds it now (`table`, with `bound_by` and `narrowed_by` when a query must bound
         or narrow it), its columns no field describes, and what the vocabulary says each own metadata value means.
-        Give `connection` or `model` when two models have a dataset of that name."""
+        A field whose expression is nothing but its own name comes without `expression`: it is the column of that
+        name. An own metadata value longer than 1000 characters (a table's SQL, a long list) is shortened — a text to
+        its beginning, ending in `…`, a list or a mapping to a note of its length — and `note` says so: `full: true`
+        serves them whole. Give `connection` or `model` when two models have a dataset of that name."""
         found = [
             (chosen, owner, None, node)
             for chosen, owner in models_of(connection, model)
@@ -504,6 +559,9 @@ def build_server(config: Config | None = None) -> MCPServer:
         chosen, owner, _, node = one(found, "dataset", dataset, "list_datasets")
         answer: dict = {"connection": chosen.name, "model": owner.name, "dataset": node["name"]}
         answer |= {key: value for key, value in node.items() if key not in ("name", "fields", "metrics")}
+        shortened = False
+        if not full and "custom_extensions" in answer:
+            answer["custom_extensions"], shortened = shorten_metadata(answer["custom_extensions"], SHORT_METADATA)
         columns: list = []
         if semantic.is_query(node["source"]):
             answer["table"] = {"note": "the source is a query, not a table"}
@@ -518,7 +576,11 @@ def build_server(config: Config | None = None) -> MCPServer:
         by_name = {guard.stored_name(column.name, chosen.rules): column for column in columns}
         fields, described = [], set()
         for field in node.get("fields", []):
-            item = dict(field)
+            itself = semantic.names_itself(field)  # its expression is its name: the column of that name, said once
+            item = {key: value for key, value in field.items() if not (key == "expression" and itself)}
+            if not full and "custom_extensions" in item:
+                item["custom_extensions"], cut = shorten_metadata(item["custom_extensions"], SHORT_METADATA)
+                shortened = shortened or cut
             name = semantic.bare_column(field)
             column = by_name.get(guard.stored_name(name, chosen.rules)) if name else None
             if column is not None:
@@ -536,6 +598,11 @@ def build_server(config: Config | None = None) -> MCPServer:
         said = definitions([node, *node.get("fields", []), *node.get("metrics", []), *relationships])
         if said:
             answer["vocabulary"] = said
+        if shortened:
+            answer["note"] = (
+                f"Own metadata values longer than {SHORT_METADATA} characters are shortened — a text to its "
+                "beginning, ending in …, a list or a mapping to a note of its length: `full: true` serves them whole."
+            )
         own = answer.get("custom_extensions")
         cut = cut_texts(own, LONG_TEXT)
         smaller = [
@@ -591,11 +658,11 @@ def build_server(config: Config | None = None) -> MCPServer:
 
     @server.tool(annotations=READ_ONLY, structured_output=False)
     def list_metadata(connection: str | None = None) -> str:
-        """The team's own metadata the semantic models hold — what `list_datasets` and `list_metrics` filter by
-        (`metadata`). For each vendor and key: what the vocabulary says it is, and on how many datasets, fields and
-        metrics it is. For a key of short values — words, numbers, a list of them — each value: on how many it is, and
-        what the vocabulary says it means, the most used first; a key of more than 50 values, or of long texts, says how
-        many it has."""
+        """The team's own metadata the semantic models hold — what `list_datasets` (and `list_metrics`, where a model
+        defines metrics) filter by (`metadata`). For each vendor and key: what the vocabulary says it is, and on how
+        many datasets, fields and metrics it is. For a key of short values — words, numbers, a list of them — each
+        value: on how many it is, and what the vocabulary says it means, the most used first; a key of more than 50
+        values, or of long texts, says how many it has."""
         found: dict[tuple[str, str], dict] = {}
         for _, model in models_of(connection, None):
             for _, level, extension in semantic.extensions(model.document):
@@ -763,7 +830,16 @@ def build_server(config: Config | None = None) -> MCPServer:
             item["comment"] = column.comment
         return item
 
-    @server.tool(annotations=READ_ONLY, structured_output=False)
+    def carrying_instructions(function):
+        """A tool whose description is followed by the server's instructions, when the configuration asks for it
+        (`instructions_in_run_query`): a gateway that joins servers under one may pass their tools on and drop the
+        instructions each gives when a client connects — and an agent reads a tool's description before calling it."""
+        description = None
+        if config and config.instructions_in_run_query:
+            description = f"{function.__doc__}\n\n{CARRIED}\n\n{said}"  # the tool's own, unchanged, then them
+        return server.tool(annotations=READ_ONLY, structured_output=False, description=description)(function)
+
+    @carrying_instructions
     def run_query(sql: str, connection: str | None = None) -> str:
         """Run one read-only SELECT (WITH, UNION, joins, subqueries allowed) in the connection's SQL dialect.
 
@@ -821,6 +897,9 @@ def build_server(config: Config | None = None) -> MCPServer:
         rows = [[answers.value(item) for item in row] for row in result.rows]
         return answers.render(answer, "rows", rows, answer_characters, "Select fewer columns, aggregate, or add LIMIT.")
 
+    if not defines_metrics(config):  # a tool that could only answer "there are none" costs an agent a turn
+        server.remove_tool("list_metrics")
+        server.remove_tool("describe_metric")
     return server
 
 

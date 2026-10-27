@@ -88,6 +88,7 @@ class ConfigFile(_Strict):
     connections: Annotated[list[ConnectionEntry], Field(min_length=1)]
     limits: ServerLimits = ServerLimits()
     instructions: str | None = None
+    instructions_in_run_query: bool = False
     context: list[str | InRepository] = []
     skills: list[str | InRepository] = []
     vocabularies: list[str] = []
@@ -120,6 +121,8 @@ class Config:
     connections: dict[str, Connection]
     limits: ServerLimits
     instructions: str | None = None
+    # The server's instructions carried in `run_query`'s description too, for clients and gateways that drop them.
+    instructions_in_run_query: bool = False
     context: tuple[Place, ...] = ()
     skills: tuple[Place, ...] = ()
     # By name: where context and skills are read from when they are not on disk.
@@ -254,6 +257,7 @@ def parse(data: Any, *, source: str, base_dir: pathlib.Path, reach: bool = True)
         connections=connections,
         limits=parsed.limits,
         instructions=parsed.instructions,
+        instructions_in_run_query=parsed.instructions_in_run_query,
         context=server_context,
         skills=server_skills,
         repositories=by_name,

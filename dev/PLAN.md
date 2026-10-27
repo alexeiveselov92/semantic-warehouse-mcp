@@ -105,6 +105,11 @@ The engine production work runs on (the author, 2026-10-24) — moved up from "t
       runs — refused as `engine_parse`. Another reading of the tables a query reads on those servers, as strict.
       ✅ 2026-10-25 — the tree as parsed, read by the interpreter's rules (`dev/DECISIONS.md`); 22.11 in CI; refuted
       by a second reader; the real installation's query answered, checked; 0.6.1.
+- [x] Measured against a company's own data agent on the same questions (`dev/DECISIONS.md`, 2026-10-27): the team's
+      rules through any gateway (`instructions_in_run_query`), `describe_dataset` lighter (`full`), the metric tools
+      only where a model defines metrics. ✅ 2026-10-27 — 24 of 24 answered by the team's rules (19 before), cost per
+      question 1.4× the agent's (1.7× before); 0.9.0. The next lever, measured first: choosing fields in
+      `describe_dataset`.
 
 ## Milestone 6. Metrics — 2 sessions
 

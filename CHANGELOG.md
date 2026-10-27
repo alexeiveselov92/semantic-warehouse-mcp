@@ -4,6 +4,11 @@ One line per change, newest on top: `YYYY-MM-DD — what was done`.
 
 ---
 
+2026-10-27 — **0.9.0**: the team's rules through any gateway, a lighter `describe_dataset`, the metric tools only where there are metrics
+2026-10-27 — `instructions_in_run_query`: the server's instructions — its own and the team's, as written — also follow `run_query`'s description, for a gateway that passes tools on and drops the handshake's instructions (measured: one did, and agents then counted days in UTC where the team counts in its local time)
+2026-10-27 — `describe_dataset`: an own metadata value longer than 1000 characters (a model's SQL, a long list) is shortened — a text to its beginning, a list or a mapping to a note of its length — unless `full: true`; a field whose expression is nothing but its own name comes without `expression`; measured on a real warehouse: answers 15% shorter while none hit the answer limit (a third did, losing fields)
+2026-10-27 — `list_metrics` and `describe_metric` offered, and named in the instructions, only when a semantic model defines a metric
+2026-10-27 — measured against a company's own data agent on the same questions (`dev/DECISIONS.md`): the server, behind a gateway, cost 1.7 times as much per question and answered 19 of 24 by the team's rules; with these changes 1.4 times, 24 of 24
 2026-10-26 — 0.8.1 released (PyPI, GHCR) and checked on the published package: `GET /mcp` `405` in 0.5 ms, `POST` `200`
 2026-10-26 — **0.8.1**: a `GET` of the MCP endpoint answered `405` at once
 2026-10-26 — Streamable HTTP: a `GET` of the MCP endpoint — a client asking for a stream of the server's own messages — is answered `405` (`Allow: POST`) at once, inside the token check, instead of being held open and empty by the SDK until the client gave up (measured: 8 s, the client's timeout); a gateway gathering its backends' streams waited on it

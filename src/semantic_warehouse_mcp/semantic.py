@@ -327,6 +327,12 @@ def expression(node: dict[str, Any]) -> str | None:
     return ansi[0] if ansi else (dialects[0]["expression"] if dialects else None)
 
 
+def names_itself(node: dict[str, Any]) -> bool:
+    """Whether a field's expression, in every dialect written, is nothing but the field's own name, as written."""
+    dialects = node.get("expression", {}).get("dialects", [])
+    return bool(dialects) and all(item.get("expression") == node.get("name") for item in dialects)
+
+
 def bare_column(node: dict[str, Any]) -> str | None:
     """The column a field's expression is, when it is nothing but one column's name (`amount`, not `amount - x`)."""
     text = expression(node)

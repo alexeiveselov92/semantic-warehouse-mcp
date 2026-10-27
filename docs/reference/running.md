@@ -77,6 +77,11 @@ An organisation's MCP gateway (signing people in, deciding who sees which server
 a key of its own: give that key to the server as its token. Who is asking stays at the gateway — the server answers
 the gateway, not the person.
 
+A gateway that joins several servers under one name may pass their tools on and drop the instructions each gives when
+a client connects — and with them your team's rules. Ask an agent connected through it whether it has this server's
+instructions; if not, `instructions_in_run_query` ([configuration](configuration.md#instructions-and-context))
+carries them in `run_query`'s description, which every gateway passes.
+
 ## The image
 
 The server's container image holds the package and its locked dependencies and `git`, runs as user `10001` without

@@ -46,8 +46,8 @@ def team(shop_path):
     (kitchen / "diagram.png").write_bytes(b"\x89PNG")
     (folder / "outside.md").write_text("not in any context folder")
 
-    def build(answer_characters=40_000):
-        return load(write_config(folder, CONFIG.format(answer_characters=answer_characters)))
+    def build(answer_characters=40_000, top=""):
+        return load(write_config(folder, top + CONFIG.format(answer_characters=answer_characters)))
 
     return build
 
@@ -75,6 +75,31 @@ async def test_instructions_reach_the_agent_as_written(team):
     )
     assert shop["context"] == ["kitchen/nested/pipeline.txt", "kitchen/rules.md"]
     assert answer["context"] == ["glossary.md"]
+
+
+async def test_instructions_follow_run_querys_description_when_asked(team):
+    """A gateway may drop the instructions a client gets when it connects; asked to, the server carries them in
+    `run_query`'s description too — every word, after the tool's own — and nowhere else."""
+
+    async def descriptions(config):
+        async with Client(build_server(config)) as client:
+            tools = (await client.list_tools()).tools
+            return {tool.name: tool.description for tool in tools}, client.instructions
+
+    plain, instructions = await descriptions(team())
+    carried, same = await descriptions(team(top="instructions_in_run_query: true\n"))
+    assert same == instructions
+    own, rest = carried["run_query"].split("\n\nThe instructions this server gives a client when it connects follow", 1)
+    assert own == plain["run_query"]
+    assert rest == (
+        " — here too, because some clients and gateways do not pass them on. Read them before the first query."
+        f"\n\n{instructions}"
+    )
+    assert "Test orders are already removed from marts.orders." in rest and "Dates are UTC." in rest
+    assert {name: text for name, text in carried.items() if name != "run_query"} == {
+        name: text for name, text in plain.items() if name != "run_query"
+    }
+    assert "The instructions this server gives" not in plain["run_query"]
 
 
 async def test_list_context(team):

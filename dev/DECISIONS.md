@@ -511,3 +511,53 @@ milliseconds. Streamable HTTP allows a server exactly two answers to that `GET`:
 never sends anything it was not asked for, so its stream would only ever be empty. Decided (the agent, at the author's
 "yes"): the server answers it `405` with `Allow: POST` before the SDK sees it, inside the token check — a request
 without the token is still `401`. The sibling, repo-reader-mcp, takes the same.
+
+## 2026-10-27 · Measured against a company's own data agent: the rules through any gateway, a lighter dataset, no empty tools
+
+**The measurement** (the author asked how efficiently the server finds and reads data, against the data agent a
+company already gives its employees). The agent: Claude Code in a folder with the team's rules in its `AGENTS.md`
+(so in the system prompt), context documents read as files, and a plain ClickHouse MCP of three tools — the dbt
+catalog read by SQL. The server: 0.8.0 behind the company's MCP gateway, two warehouses' semantic models (both the
+company's), the same rules as `instructions` and context. The same eight questions about one warehouse (counts, money,
+a breakdown, a cohort's retention), three runs each, headless, the same model and effort; every answer checked
+against a number computed independently by a direct query. Medians per question:
+
+| | the agent | 0.8.0, gateway | 0.9.0, instructions dropped as the gateway drops them |
+|---|---:|---:|---:|
+| time to answer | 25 s | 24 s | 23 s |
+| model turns | 10 | 14.5 | 11.5 |
+| input tokens (cache included) | 328k | 448k | 358k |
+| cost | 1× | 1.7× | 1.4× |
+| answers by the team's rules | 22 / 24 | 19 / 24 | 24 / 24 |
+
+The database is not where the time goes: one to two seconds of tools per question either way, a quarter of a second a
+query here (the engine's reading, then the query). The rest is the model.
+
+**What it showed, and what was decided** (the agent, at the author's word: "let's change it"):
+
+1. **The gateway dropped the server's instructions.** It joins its backends under one name and passes their tools on;
+   the handshake's `instructions` never reached the agent (asked, it said it had none). The rules then arrived only
+   when an agent chose to read `list_connections` or the context — 7 sessions of 24 never did, and 5 of those counted
+   days in UTC where the team counts in its local time (exact numbers, the wrong day boundary). The tools' descriptions
+   did pass. Decided: `instructions_in_run_query` — the server's instructions, as written, also follow `run_query`'s
+   description; an agent reads a tool's description before it calls the tool, and Claude Code passes a description of
+   15,000 characters whole (checked). **Off by default**: where the handshake's instructions arrive, a client holding
+   every description in its prompt would carry them twice, and whether a gateway drops them is the installation's to
+   check (the running guide says how). The author may turn the default.
+2. **`describe_dataset` was the heaviest answer** — 27,000 characters on average: a quarter of its length the team's own
+   metadata for how a table is built (its SQL, tens of thousands of characters; its sources and their code links),
+   an eighth each field's expression repeating its name; and a third of the answers hit the answer limit and lost
+   fields. Every later step rereads it. Decided: an own metadata value longer than 1000 characters is shortened — a
+   text to its beginning, a list or a mapping to a note of its length — and `note` says so; `full: true` serves every
+   value whole. A field whose expression is its own name in every dialect comes without `expression`. Nothing is
+   reworded: a shortened value says it is, and the whole is one argument away. Measured: 15% shorter on average, no
+   answer at the limit, more fields delivered.
+3. **Every session called `list_metrics`, and it always answered nothing** — the models define no metrics yet.
+   Decided: `list_metrics` and `describe_metric` are offered, and named in the instructions, only when a model
+   defines a metric.
+
+**Not changed**: `list_datasets` (its large answers are real matches of a search, or the map of hundreds of datasets);
+the shape of own metadata on each field (Ossie's `custom_extensions` wrapper, a fifth of the answer now — kept as
+written); field descriptions (the third that is the point). **What is left of the gap**: the agent pays for its rules
+once, in the prompt, and reads its catalog by SQL — choosing columns, cutting descriptions; this server answers a
+table whole. Selecting fields in `describe_dataset` is the next lever, measured first.

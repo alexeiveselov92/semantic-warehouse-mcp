@@ -116,11 +116,6 @@ const describeDataset =
     …
     {
       "name": "order_date",
-      "expression": {
-        "dialects": [
-          {"dialect": "ANSI_SQL", "expression": "order_date"}
-        ]
-      },
       "dimension": {"is_time": true},
       "datatype": "Date",
       "custom_extensions": [
@@ -463,7 +458,7 @@ $ export SWM_TOKEN=…        # a long random value
 $ uvx --from 'semantic-warehouse-mcp[all]' semantic-warehouse-mcp \\
     --config config.yaml --http --host 0.0.0.0 --token-env SWM_TOKEN
 $ curl -s localhost:8000/health
-{"status":"ok","name":"semantic-warehouse-mcp","version":"0.8.1"}
+{"status":"ok","name":"semantic-warehouse-mcp","version":"0.9.0"}
 
 # each person's agent
 $ claude mcp add --transport http warehouse \\

@@ -117,7 +117,7 @@ What a team knows about its data beyond what a table says — how it is made, wh
 
 | Key | What |
 |---|---|
-| `instructions` | short rules, written in the configuration. An agent gets them at once: in the server's instructions when it connects, and in `list_connections` |
+| `instructions` | short rules, written in the configuration. An agent gets them at once: in the server's instructions when it connects (and, with `instructions_in_run_query`, in `run_query`'s description — below), and in `list_connections` |
 | `context` | documents, kept where you keep them: a list of files and folders, relative to the configuration file's folder. A folder serves every `.md`, `.markdown` and `.txt` file in it, at any depth (hidden files and folders left out). An agent lists them (`list_context`) and reads the ones it needs (`get_context`) |
 
 ```yaml
@@ -137,7 +137,20 @@ connections:
 ```
 
 Both are served **as written** — the server never rewords them. A document is read when an agent asks for it, so an
-edited or added document is served without a restart. Every path must exist when the server starts, and no two
+edited or added document is served without a restart.
+
+**Behind a gateway, the instructions may never arrive.** A client gets them when it connects, in the MCP handshake —
+and a gateway that joins several servers under one name may pass their tools on and drop the instructions each
+gives. An agent then never sees the rules unless it happens to read `list_connections` or the context documents, and
+answers by its own guesses: a day in UTC where the team counts in its local time, say. To check, ask the agent through
+your gateway whether it has this server's instructions. If it does not, set at the top of the file:
+
+| Key | Default | What |
+|---|---|---|
+| `instructions_in_run_query` | `false` | the server's instructions — its own and every `instructions` above, as written — also follow `run_query`'s description. A tool's description passes every gateway, and an agent reads it before its first query |
+
+They then cost their length once more where a client hands an agent both — so leave it off where the handshake's
+instructions arrive. Every path must exist when the server starts, and no two
 documents of one scope may share a name: a file is named by its own name, a folder's files as
 `<folder>/<path inside it>`. Documents kept in a git repository the server does not hold beside its configuration are
 read [from the repository](#repositories).
