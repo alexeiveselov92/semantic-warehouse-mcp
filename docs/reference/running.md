@@ -14,7 +14,7 @@ holds.
 ```text
 semantic-warehouse-mcp --config <file> [--check [--offline]]
 semantic-warehouse-mcp --config <file> --http [--host 127.0.0.1] [--port 8000] [--path /mcp] [--token-env NAME]
-                       [--caller-header NAME]
+                       [--caller-header NAME] [--log-calls]
 semantic-warehouse-mcp import-dbt <configuration> [--strict] [--check]     # the dbt importer: its own page
 semantic-warehouse-mcp import-database --config <file> --output <file> …   # the database importer: its own page
 ```
@@ -31,6 +31,7 @@ semantic-warehouse-mcp import-database --config <file> --output <file> …   # t
 | `--token-env` | | with `--http`: the environment variable holding the token every request must carry. **Required** unless `--host` is `127.0.0.1`, `localhost` or `::1` |
 
 | `--caller-header` | | with `--http` and `--token-env`: the request header in which a gateway names the caller — see [Behind a gateway](#behind-a-gateway) |
+| `--log-calls` | | write a JSON line for every tool call to standard error — see [A log of calls](#a-log-of-calls) |
 
 The [dbt importer](dbt-importer.md) and the [database importer](database-importer.md) are commands of their own,
 `import-dbt` and `import-database`.
@@ -88,8 +89,8 @@ semantic-warehouse-mcp --config config.yaml --http --host 0.0.0.0 --token-env SW
   as the server's one user, so a database's own limit per user is one limit for everybody. With the caller's name the
   server tells an engine that can account a query to a person who asked: [ClickHouse](engines.md#clickhouse) takes it
   as the query's quota key. The other engines are told nothing yet.
-- **What the server does with the name.** Nothing else: it decides nothing by it, writes it to no log and no answer,
-  and holds it for that one request.
+- **What the server does with the name.** It decides nothing by it, puts it in no answer and holds it for that one
+  request. It is written in one place only, and only when you ask: the [log of calls](#a-log-of-calls).
 - **Whom it trusts.** Whoever holds the token — which is why the option is refused without `--token-env`. Have the
   gateway *set* the header from the sign-in, never pass on one a client sent.
 - **A name** is a login, an e-mail address or a key's name: letters, digits and `. _ @ + -`, up to 128 characters. A
@@ -99,6 +100,40 @@ A gateway that joins several servers under one name may pass their tools on and 
 a client connects — and with them your team's rules. Ask an agent connected through it whether it has this server's
 instructions; if not, `instructions_in_run_query` ([configuration](configuration.md#instructions-and-context))
 carries them in `run_query`'s description, which every gateway passes.
+
+## A log of calls
+
+```sh
+semantic-warehouse-mcp --config config.yaml --http --host 0.0.0.0 --token-env SWM_TOKEN --caller-header X-Forwarded-User --log-calls
+```
+
+With `--log-calls` the server writes one JSON line to standard error for every tool call — over HTTP or stdio — after
+the call ends. It is for the people who run the server: what agents look for, in what order, what they are refused,
+how long it takes. Collect the lines the way you collect any process's log.
+
+```json
+{"event": "tool_call", "at": "2026-01-15T09:30:12.953+00:00", "caller": "ann@example.com", "tool": "run_query",
+ "arguments": {"sql": "SELECT count(*) AS n FROM marts.orders", "connection": null}, "outcome": "answered",
+ "answer_characters": 211, "connection": "shop", "row_count": 1, "truncated": false, "seconds": 0.043}
+```
+
+| Key | What |
+|---|---|
+| `event` | always `tool_call` — to tell these lines from the rest of the log |
+| `at` | when the call began, UTC |
+| `caller` | the name a gateway gave ([`--caller-header`](#behind-a-gateway)); `null` over stdio and where nobody is named |
+| `tool`, `arguments` | the tool and what it was called with, defaults included. A text longer than 20,000 characters is cut, and says so |
+| `outcome` | `answered`, or `error` — a refusal by the guard, a database's error, a wrong argument |
+| `error` | with `error`: what the agent was told, its first 1,000 characters |
+| `answer_characters` | with `answered`: the answer's size |
+| `connection`, `row_count`, `truncated` | where the answer states them (`run_query`): copied from it |
+| `seconds` | how long the call took |
+
+- **The answer is never written** — no row of the database reaches the log. A query's text is: treat the log as you
+  treat the database's own query log.
+- **A caller's name is written** — the one place the server keeps it. Leave `--log-calls` out and it is kept nowhere.
+- **A call is never failed by its log**: a line that cannot be written is dropped.
+- **No sessions.** The server is stateless and knows no session; a person's calls close in time are one piece of work.
 
 ## The image
 
