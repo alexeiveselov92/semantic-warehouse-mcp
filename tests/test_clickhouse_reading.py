@@ -6,7 +6,7 @@ import re
 
 import pytest
 
-from semantic_warehouse_mcp.adapters import AdapterError
+from semantic_warehouse_mcp.adapters import CALLER, AdapterError
 from semantic_warehouse_mcp.adapters.clickhouse import (
     FIXED_PARAMS,
     PROFILE_SETTINGS,
@@ -93,6 +93,20 @@ def test_a_readonly_one_user_is_sent_no_limit(answering):
     assert adapter.fixed_limits is True
     params = adapter._params("SELECT 1", seconds=5, settings={"default_format": "TSV", "max_result_rows": 4})
     assert set(params) <= set(FIXED_PARAMS) and params["default_format"] == "TSV"
+
+
+@pytest.mark.parametrize("own", [{}, {"readonly": "1", "max_execution_time": "30"}])
+def test_the_caller_a_gateway_named_is_the_querys_quota_key(answering, own):
+    """ClickHouse counts a quota keyed by client key per caller, and writes the key in its query log — for a user
+    within its profile's limits too: the key is a request parameter, not a setting."""
+    adapter = answering(RESOLVED_SELECT_ONE, own=own)
+    adapter.check()
+    assert "quota_key" not in adapter._params("SELECT 1", seconds=5, settings=None)
+    held = CALLER.set("ann@example.com")
+    try:
+        assert adapter._params("SELECT 1", seconds=5, settings=None)["quota_key"] == "ann@example.com"
+    finally:
+        CALLER.reset(held)
 
 
 @pytest.mark.parametrize(

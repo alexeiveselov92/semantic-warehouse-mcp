@@ -107,6 +107,23 @@ catalogs: a three-part name is refused.
 **Dictionaries and Join tables.** `dictGet…`, `dictHas`, `dictIsIn` and `joinGet…` read the dictionary or table named in
 their first argument: the name must be a string, and the dictionary readable (`dictionaries.*` in the example).
 
+**A limit per person.** Served [behind a gateway that names the caller](running.md#behind-a-gateway)
+(`--caller-header`), every query the server sends for a request — the one asked for, the reading of its tree before
+it, a table's columns — carries the caller's name as its `quota_key`. ClickHouse counts a quota keyed by client key
+for each name apart, and writes the name in `system.query_log` (`quota_key`), so its log says who asked what:
+
+```sql
+CREATE QUOTA per_person KEYED BY client_key_or_ip_address
+    FOR INTERVAL 1 hour MAX execution_time = 1800
+    TO warehouse_reader;
+```
+
+Tried on 26.3: two names are counted apart; a request nobody is named for is counted by its address
+(`client_key_or_ip_address`) or with the user (`client_key, user_name`), while a quota keyed by `client_key` alone
+refuses it; a `readonly = 1` user may send the key (it is a request parameter, not a setting). A quota's `queries`
+counts the tree reading too — two for each query asked — so `execution_time` or `read_rows` measures a person's load
+better than a count of queries.
+
 ## PostgreSQL
 
 `engine: postgres` — a PostgreSQL server (tried on 17). Needs the `postgres` extra.

@@ -16,6 +16,8 @@ from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from semantic_warehouse_mcp import serving
+from semantic_warehouse_mcp.adapters import CALLER
+from semantic_warehouse_mcp.adapters.duckdb import DuckDBAdapter
 from semantic_warehouse_mcp.server import build_server, main
 
 pytestmark = pytest.mark.anyio
@@ -28,11 +30,13 @@ def served(shop_config):
     """The made-up shop served over HTTP on a free port of 127.0.0.1, with a token or without."""
     servers = []
 
-    def serve(token=TOKEN):
+    def serve(token=TOKEN, caller_header=None):
         with socket.socket() as probe:
             probe.bind(("127.0.0.1", 0))
             port = probe.getsockname()[1]
-        application = serving.app(build_server(shop_config()), path="/mcp", token=token, host="127.0.0.1")
+        application = serving.app(
+            build_server(shop_config()), path="/mcp", token=token, host="127.0.0.1", caller_header=caller_header
+        )
         server = uvicorn.Server(uvicorn.Config(application, host="127.0.0.1", port=port, log_level="warning"))
         threading.Thread(target=server.run, daemon=True).start()
         for _ in range(200):
@@ -47,8 +51,8 @@ def served(shop_config):
         server.should_exit = True
 
 
-def connect(url, token):
-    headers = {"Authorization": f"Bearer {token}"} if token else {}
+def connect(url, token, **more):
+    headers = {**({"Authorization": f"Bearer {token}"} if token else {}), **more}
     return Client(streamable_http_client(f"{url}/mcp", http_client=httpx2.AsyncClient(headers=headers)))
 
 
@@ -136,3 +140,64 @@ def test_a_token_written_for_its_variable_is_never_repeated(shop_config, capsys,
 def test_a_path_that_is_not_one_is_refused():
     with pytest.raises(serving.HttpProblem, match="a path starting with /"):
         serving.serve(build_server(), host="127.0.0.1", port=1, path="/health", token_env=None)
+
+
+@pytest.mark.parametrize(
+    ("sent", "held"),
+    [
+        ({"X-Asked-By": "ann@example.com"}, "ann@example.com"),
+        ({"x-asked-by": "ci-reports"}, "ci-reports"),  # a header's name in any case
+        ({}, None),
+        ({"X-Asked-By": "ann smith"}, None),  # not a name as a gateway writes one: served, nobody named
+        ({"X-Asked-By": "a" * 129}, None),
+        ({"X-Other": "ann@example.com"}, None),
+    ],
+)
+async def test_the_caller_a_gateway_names_reaches_the_adapter_for_that_request(served, monkeypatch, sent, held):
+    asked_by = []
+    run = DuckDBAdapter.run
+
+    def recording(self, sql, max_rows, seconds):
+        asked_by.append(CALLER.get())
+        return run(self, sql, max_rows, seconds)
+
+    monkeypatch.setattr(DuckDBAdapter, "run", recording)
+    url = served(caller_header="X-Asked-By")
+    async with connect(url, TOKEN, **sent) as client:
+        result = await client.call_tool("run_query", {"sql": "SELECT count(*) AS n FROM marts.orders"})
+    assert json.loads(result.content[0].text)["rows"] == [[6]]
+    assert asked_by == [held]
+    assert CALLER.get() is None  # held for the request alone
+
+
+async def test_without_a_caller_header_named_nobody_is_named(served, monkeypatch):
+    asked_by = []
+    run = DuckDBAdapter.run
+
+    def recording(self, sql, max_rows, seconds):
+        asked_by.append(CALLER.get())
+        return run(self, sql, max_rows, seconds)
+
+    monkeypatch.setattr(DuckDBAdapter, "run", recording)
+    async with connect(served(), TOKEN, **{"X-Asked-By": "ann@example.com"}) as client:
+        await client.call_tool("run_query", {"sql": "SELECT count(*) AS n FROM marts.orders"})
+    assert asked_by == [None]
+
+
+@pytest.mark.parametrize(
+    ("header", "token", "said"),
+    [
+        ("X-Asked-By", None, "goes with --token-env"),
+        ("Authorization", TOKEN, "carries the server's token"),
+        ("X Asked By", TOKEN, "an HTTP header's name"),
+    ],
+)
+def test_a_caller_header_that_could_be_forged_or_is_not_one_is_refused(header, token, said):
+    with pytest.raises(serving.HttpProblem, match=said):
+        serving.app(build_server(), path="/mcp", token=token, host="127.0.0.1", caller_header=header)
+
+
+def test_a_caller_header_over_stdio_is_refused(shop_config, capsys):
+    with pytest.raises(SystemExit) as stopped:
+        main(["--config", shop_config().source, "--caller-header", "X-Asked-By"])
+    assert stopped.value.code == 2 and "--caller-header goes with --http" in capsys.readouterr().err

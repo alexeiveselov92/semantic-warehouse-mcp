@@ -14,6 +14,7 @@ holds.
 ```text
 semantic-warehouse-mcp --config <file> [--check [--offline]]
 semantic-warehouse-mcp --config <file> --http [--host 127.0.0.1] [--port 8000] [--path /mcp] [--token-env NAME]
+                       [--caller-header NAME]
 semantic-warehouse-mcp import-dbt <configuration> [--strict] [--check]     # the dbt importer: its own page
 semantic-warehouse-mcp import-database --config <file> --output <file> …   # the database importer: its own page
 ```
@@ -28,6 +29,8 @@ semantic-warehouse-mcp import-database --config <file> --output <file> …   # t
 | `--port` | `8000` | with `--http`: the port |
 | `--path` | `/mcp` | with `--http`: the MCP endpoint's path |
 | `--token-env` | | with `--http`: the environment variable holding the token every request must carry. **Required** unless `--host` is `127.0.0.1`, `localhost` or `::1` |
+
+| `--caller-header` | | with `--http` and `--token-env`: the request header in which a gateway names the caller — see [Behind a gateway](#behind-a-gateway) |
 
 The [dbt importer](dbt-importer.md) and the [database importer](database-importer.md) are commands of their own,
 `import-dbt` and `import-database`.
@@ -75,7 +78,22 @@ text; and a certificate authority's (`SSL_CERT_FILE`, `SSL_CERT_DIR`, `GIT_SSL_C
 
 An organisation's MCP gateway (signing people in, deciding who sees which servers) usually reaches its backends with
 a key of its own: give that key to the server as its token. Who is asking stays at the gateway — the server answers
-the gateway, not the person.
+the gateway, not the person — unless the gateway says who, and you name the header it says it in:
+
+```sh
+semantic-warehouse-mcp --config config.yaml --http --host 0.0.0.0 --token-env SWM_TOKEN --caller-header X-Forwarded-User
+```
+
+- **What it is for.** A limit per person, and a log that says who asked. All of a gateway's people reach the database
+  as the server's one user, so a database's own limit per user is one limit for everybody. With the caller's name the
+  server tells an engine that can account a query to a person who asked: [ClickHouse](engines.md#clickhouse) takes it
+  as the query's quota key. The other engines are told nothing yet.
+- **What the server does with the name.** Nothing else: it decides nothing by it, writes it to no log and no answer,
+  and holds it for that one request.
+- **Whom it trusts.** Whoever holds the token — which is why the option is refused without `--token-env`. Have the
+  gateway *set* the header from the sign-in, never pass on one a client sent.
+- **A name** is a login, an e-mail address or a key's name: letters, digits and `. _ @ + -`, up to 128 characters. A
+  request without the header, or with a value that is not such a name, is served as before — for nobody named.
 
 A gateway that joins several servers under one name may pass their tools on and drop the instructions each gives when
 a client connects — and with them your team's rules. Ask an agent connected through it whether it has this server's

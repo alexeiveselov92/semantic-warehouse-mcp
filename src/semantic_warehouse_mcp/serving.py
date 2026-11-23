@@ -8,6 +8,7 @@ from __future__ import annotations
 import hmac
 import json
 import os
+import re
 from typing import Any
 
 import uvicorn
@@ -16,6 +17,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from . import __version__, files
+from .adapters import CALLER
 
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
 HEALTH = "/health"
@@ -30,6 +32,10 @@ NO_STREAM = json.dumps(
     {"error": "method_not_allowed", "note": "Stateless: no stream of the server's own messages is offered. POST only."}
 ).encode()
 NO_STREAM_HEADERS = [(b"content-type", b"application/json"), (b"allow", b"POST")]
+# A caller's name as a gateway writes one: a login, an e-mail address, a key's name. Anything else — empty, longer,
+# with a space or a quote — is not taken for a name: the request is served as one nobody was named for.
+CALLER_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._@+-]{0,127}")
+HEADER_NAME = re.compile(r"[A-Za-z0-9!#$%&'*+.^_`|~-]+")
 
 
 class HttpProblem(Exception):
@@ -52,9 +58,27 @@ def token_of(variable: str | None, host: str) -> str | None:
     return token
 
 
-def app(server: MCPServer, *, path: str, token: str | None, host: str) -> Any:
+def caller_header_of(name: str | None, token: str | None) -> str | None:
+    """The header a gateway names the caller in, lower-cased as ASGI gives headers. Refused without a token: whoever
+    reaches the server could then name anyone."""
+    if name is None:
+        return None
+    if not HEADER_NAME.fullmatch(name):
+        raise HttpProblem(f"--caller-header {name!r}: an HTTP header's name, like X-Forwarded-User")
+    if name.lower() == "authorization":
+        raise HttpProblem("--caller-header Authorization: that header carries the server's token, not a caller's name")
+    if token is None:
+        raise HttpProblem(
+            "--caller-header goes with --token-env: without the token anyone who reaches the server could name any "
+            "caller. The gateway that sets the header holds the token"
+        )
+    return name.lower()
+
+
+def app(server: MCPServer, *, path: str, token: str | None, host: str, caller_header: str | None = None) -> Any:
     """The server as an ASGI application: MCP at `path`, stateless (any replica answers any request), one JSON answer
-    per request; `/health` for a readiness probe, which reaches no database."""
+    per request; `/health` for a readiness probe, which reaches no database. With `caller_header`, the name a gateway
+    wrote there is held for the request (adapters.CALLER)."""
 
     @server.custom_route(HEALTH, methods=["GET"])
     async def health(request: Request) -> JSONResponse:
@@ -62,6 +86,9 @@ def app(server: MCPServer, *, path: str, token: str | None, host: str) -> Any:
 
     served = server.streamable_http_app(streamable_http_path=path, stateless_http=True, json_response=True, host=host)
     served = _NoStream(served, path)
+    header = caller_header_of(caller_header, token)
+    if header:
+        served = _Caller(served, header)  # inside the token check: only the token's holder names a caller
     return _Bearer(served, token) if token else served
 
 
@@ -81,6 +108,27 @@ class _NoStream:
             await send({"type": "http.response.body", "body": NO_STREAM})
             return
         await self.inner(scope, receive, send)
+
+
+class _Caller:
+    """Holds, for one request, the caller's name a gateway wrote in `header` — so an engine that accounts queries per
+    person can be told who asked. The server itself decides nothing by it and writes it nowhere."""
+
+    def __init__(self, inner: Any, header: str) -> None:
+        self.inner = inner
+        self.header = header.encode()
+
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+        if scope["type"] != "http":
+            await self.inner(scope, receive, send)
+            return
+        given = next((value for name, value in scope["headers"] if name == self.header), b"")
+        name = given.decode("latin-1").strip()
+        held = CALLER.set(name if CALLER_NAME.fullmatch(name) else None)
+        try:
+            await self.inner(scope, receive, send)
+        finally:
+            CALLER.reset(held)
 
 
 class _Bearer:
@@ -104,9 +152,12 @@ class _Bearer:
         await self.inner(scope, receive, send)
 
 
-def serve(server: MCPServer, *, host: str, port: int, path: str, token_env: str | None) -> None:
+def serve(
+    server: MCPServer, *, host: str, port: int, path: str, token_env: str | None, caller_header: str | None = None
+) -> None:
     """Serve over Streamable HTTP until stopped. Raises HttpProblem before serving when it cannot be done safely."""
     if not path.startswith("/") or path == HEALTH:
         raise HttpProblem(f"--path {path!r}: a path starting with / other than {HEALTH}")
     token = token_of(token_env, host)
-    uvicorn.run(app(server, path=path, token=token, host=host), host=host, port=port, log_level="warning")
+    application = app(server, path=path, token=token, host=host, caller_header=caller_header)
+    uvicorn.run(application, host=host, port=port, log_level="warning")
