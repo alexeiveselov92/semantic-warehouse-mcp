@@ -16,7 +16,7 @@ import httpx
 from pydantic import Field
 
 from .. import files
-from . import Adapter, AdapterError, Column, EngineReading, EngineSettings, Result, Table, TimedOut
+from . import CALLER, Adapter, AdapterError, Column, EngineReading, EngineSettings, Result, Table, TimedOut
 
 # The name of an environment variable — never its value.
 EnvName = Annotated[str, Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")]
@@ -192,6 +192,9 @@ class ClickHouseAdapter(Adapter):
 
     def _params(self, query: str, seconds: float, settings: dict[str, Any] | None) -> dict[str, Any]:
         params: dict[str, Any] = {"query": query, "database": self.settings.database, "query_id": str(uuid.uuid4())}
+        caller = CALLER.get()
+        if caller:  # the person a gateway named: ClickHouse counts a quota keyed by client key per person, and logs it
+            params["quota_key"] = caller
         if self.fixed_limits:
             given = {k: v for k, v in (settings or {}).items() if k in FIXED_PARAMS or k.startswith("param_")}
             return {**params, "wait_end_of_query": 1, **given}

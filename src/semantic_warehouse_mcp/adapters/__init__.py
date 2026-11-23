@@ -10,6 +10,7 @@ from __future__ import annotations
 import importlib
 import pathlib
 from abc import ABC, abstractmethod
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
@@ -22,6 +23,12 @@ ENGINES: dict[str, str] = {
     "mysql": "semantic_warehouse_mcp.adapters.mysql:MySQLAdapter",
     "postgres": "semantic_warehouse_mcp.adapters.postgres:PostgresAdapter",
 }
+
+
+# Who asked, where the server is told (`--caller-header`, serving.py): the name a gateway gave the request, held for
+# that request alone. An adapter whose engine can account a query to a person passes it on; None over stdio, and
+# wherever no header is named or the request carries none.
+CALLER: ContextVar[str | None] = ContextVar("caller", default=None)
 
 
 class EngineSettings(BaseModel):

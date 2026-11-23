@@ -4,6 +4,7 @@ One line per change, newest on top: `YYYY-MM-DD — what was done`.
 
 ---
 
+2026-11-23 — `--caller-header NAME` (with `--http` and `--token-env`): the caller's name a gateway wrote in that header is held for the request and told to an engine that accounts queries per person — ClickHouse takes it as the query's `quota_key`, so a quota keyed by client key is counted per person and `system.query_log` says who asked; refused without a token (anyone could name anyone), over stdio, and for `Authorization`; a value that is not a name (letters, digits, `. _ @ + -`, 128 characters) serves the request for nobody named; tried on ClickHouse 26.3 — two names counted apart, a `readonly = 1` user may send the key, a quota's `queries` counts the tree reading too
 2026-10-27 — 0.9.0 released (PyPI, GHCR, the site) and checked where it was measured: deployed behind the company's gateway, the same 24 runs answered 24 of 24 by the team's rules, 23 s and 10 turns a question, 1.4 times the data agent's cost; the rules quoted from `run_query`'s description by a fresh client
 2026-10-27 — **0.9.0**: the team's rules through any gateway, a lighter `describe_dataset`, the metric tools only where there are metrics
 2026-10-27 — `instructions_in_run_query`: the server's instructions — its own and the team's, as written — also follow `run_query`'s description, for a gateway that passes tools on and drops the handshake's instructions (measured: one did, and agents then counted days in UTC where the team counts in its local time)

@@ -561,3 +561,27 @@ the shape of own metadata on each field (Ossie's `custom_extensions` wrapper, a 
 written); field descriptions (the third that is the point). **What is left of the gap**: the agent pays for its rules
 once, in the prompt, and reads its catalog by SQL — choosing columns, cutting descriptions; this server answers a
 table whole. Selecting fields in `describe_dataset` is the next lever, measured first.
+
+## 2026-11-23 · Who asked reaches the engine, named by the gateway — and nothing else
+
+**What happened.** An installation gave its agents' ClickHouse user a quota "per person", keyed by client key. Every
+person behind its gateway reached ClickHouse as the server's one user with no key, so the quota was one bucket for
+the whole company, and a morning's ordinary use emptied it. Half of what it counted was the server's own tree reading
+(`EXPLAIN QUERY TREE`), one beside each query.
+
+**Decided.**
+
+- `--caller-header NAME`: the gateway names the caller in a request header; the server holds the name for that request
+  (`adapters.CALLER`, set by an ASGI wrapper inside the token check) and an adapter whose engine can account a query
+  to a person passes it on. ClickHouse: `quota_key`. PostgreSQL and MySQL: nothing yet (`application_name`, a query
+  comment — when somebody needs it).
+- The server decides nothing by the name and writes it nowhere: who may see what stays the gateway's, and a log of who
+  asked what is the database's own (`system.query_log.quota_key`). No log of the server's own was added: it would hold
+  less than the database's (not the query's time, rows or error) and be one more place a person's name is kept.
+- Refused without a token, over stdio, and for `Authorization`. A value that is not a name serves the request for
+  nobody named — a refusal there would turn a gateway's misconfiguration into an outage of every tool.
+- A request-scoped variable rather than a parameter of every adapter method: every query a request sends carries the
+  name, the tree reading and a table's columns too, with no call site to forget. The test goes through a real HTTP
+  server and the SDK's client, so a change in how the SDK carries a request to a tool is caught.
+
+**Not decided here.** The numbers of a quota: an installation's.

@@ -929,6 +929,11 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--port", type=int, default=8000, help="with --http: the port (8000)")
     parser.add_argument("--path", default="/mcp", help="with --http: the MCP endpoint's path (/mcp)")
     parser.add_argument("--token-env", help="with --http: the variable holding the token every request must carry")
+    parser.add_argument(
+        "--caller-header",
+        help="with --http and --token-env: the request header a gateway names the caller in (passed to engines "
+        "that account queries per person)",
+    )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     args = parser.parse_args(argv)
 
@@ -937,9 +942,11 @@ def main(argv: list[str] | None = None) -> None:
         parser.error(f"no configuration: pass --config <file> or set {CONFIG_VARIABLE}")
     if args.offline and not args.check:
         parser.error("--offline goes with --check: a server that serves reaches its databases")
+    if args.caller_header and not args.http:
+        parser.error("--caller-header goes with --http: over stdio there is no request to carry a header")
     if args.http:
         try:  # before the databases are reached: a server that cannot be served safely never starts
-            serving.token_of(args.token_env, args.host)
+            serving.caller_header_of(args.caller_header, serving.token_of(args.token_env, args.host))
         except serving.HttpProblem as problem:
             print(f"semantic-warehouse-mcp: {problem}", file=sys.stderr)
             sys.exit(2)
@@ -981,7 +988,14 @@ def main(argv: list[str] | None = None) -> None:
         build_server(config).run("stdio")
         return
     try:
-        serving.serve(build_server(config), host=args.host, port=args.port, path=args.path, token_env=args.token_env)
+        serving.serve(
+            build_server(config),
+            host=args.host,
+            port=args.port,
+            path=args.path,
+            token_env=args.token_env,
+            caller_header=args.caller_header,
+        )
     except serving.HttpProblem as problem:
         print(f"semantic-warehouse-mcp: {problem}", file=sys.stderr)
         sys.exit(2)
