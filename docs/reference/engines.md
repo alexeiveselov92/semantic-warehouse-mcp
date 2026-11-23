@@ -109,7 +109,8 @@ their first argument: the name must be a string, and the dictionary readable (`d
 
 **A limit per person.** Served [behind a gateway that names the caller](running.md#behind-a-gateway)
 (`--caller-header`), every query the server sends for a request — the one asked for, the reading of its tree before
-it, a table's columns — carries the caller's name as its `quota_key`. ClickHouse counts a quota keyed by client key
+it, a table's columns — carries the caller's name as its quota key (the `X-ClickHouse-Quota` header, beside the
+user's own). ClickHouse counts a quota keyed by client key
 for each name apart, and writes the name in `system.query_log` (`quota_key`), so its log says who asked what:
 
 ```sql

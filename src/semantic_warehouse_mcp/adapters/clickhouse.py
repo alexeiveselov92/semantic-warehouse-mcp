@@ -188,13 +188,18 @@ class ClickHouseAdapter(Adapter):
             if value is None:
                 raise AdapterError(f"the variable {files.variable(variable, key)} is not set")
             headers[header] = value
+        caller = CALLER.get()
+        if caller:
+            # The person a gateway named: ClickHouse counts a quota keyed by client key per person, and logs the key.
+            # Sent as a header, beside the user's: a server before 24.3 refuses a request that names its user in
+            # headers and its quota key in a parameter (Code 516) — and with the key in a header it takes the user
+            # from one too, so the default user is named when the connection names none.
+            headers["X-ClickHouse-Quota"] = caller
+            headers.setdefault("X-ClickHouse-User", "default")
         return headers
 
     def _params(self, query: str, seconds: float, settings: dict[str, Any] | None) -> dict[str, Any]:
         params: dict[str, Any] = {"query": query, "database": self.settings.database, "query_id": str(uuid.uuid4())}
-        caller = CALLER.get()
-        if caller:  # the person a gateway named: ClickHouse counts a quota keyed by client key per person, and logs it
-            params["quota_key"] = caller
         if self.fixed_limits:
             given = {k: v for k, v in (settings or {}).items() if k in FIXED_PARAMS or k.startswith("param_")}
             return {**params, "wait_end_of_query": 1, **given}
