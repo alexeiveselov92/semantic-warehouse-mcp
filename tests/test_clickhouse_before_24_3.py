@@ -8,7 +8,7 @@ from clickhouse_server import admin, old_clickhouse_url  # noqa: F401 — the fi
 from conftest import write_config
 from mcp import Client
 
-from semantic_warehouse_mcp.adapters import AdapterError
+from semantic_warehouse_mcp.adapters import CALLER, AdapterError
 from semantic_warehouse_mcp.adapters.clickhouse import EXPLAIN, UNREADABLE_TREE, ClickHouseAdapter, ClickHouseSettings
 from semantic_warehouse_mcp.config import load
 from semantic_warehouse_mcp.server import build_server
@@ -142,3 +142,20 @@ async def test_a_query_the_rules_refuse_is_refused_here_too(old_clickhouse_url, 
     config = load(write_config(tmp_path, CONFIG.format(url=old_clickhouse_url)))
     answer, is_error = await call(config, "run_query", sql=sql)
     assert is_error and f"({code}" in answer
+
+
+def test_a_query_asked_for_a_named_caller_runs_and_is_logged_under_the_name(old_clickhouse_url, login, tmp_path):  # noqa: F811
+    """On the real server: the caller's name beside the user's headers is taken, and the query log holds it."""
+    adapter = adapter_on(old_clickhouse_url, "swm_raw", tmp_path)
+    held = CALLER.set("ann@example.com")
+    try:
+        assert adapter.engine_reading("SELECT 1", seconds=10).refusal is None
+        assert adapter.run("SELECT 1 AS one", max_rows=5, seconds=10).rows == [(1,)]
+    finally:
+        CALLER.reset(held)
+    admin(old_clickhouse_url, "SYSTEM FLUSH LOGS")
+    logged = admin(
+        old_clickhouse_url,
+        "SELECT count() FROM system.query_log WHERE quota_key = 'ann@example.com' AND type = 'QueryFinish'",
+    )
+    assert int(logged) >= 2

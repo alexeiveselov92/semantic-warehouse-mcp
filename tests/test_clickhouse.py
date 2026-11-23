@@ -11,7 +11,7 @@ from conftest import write_config
 from mcp import Client
 
 from semantic_warehouse_mcp import files
-from semantic_warehouse_mcp.adapters import AdapterError, TimedOut
+from semantic_warehouse_mcp.adapters import CALLER, AdapterError, TimedOut
 from semantic_warehouse_mcp.adapters.clickhouse import ClickHouseAdapter, ClickHouseSettings
 from semantic_warehouse_mcp.config import ConfigError, load
 from semantic_warehouse_mcp.server import build_server, main
@@ -411,3 +411,19 @@ def test_a_draft_of_the_model_is_written_from_the_databases_catalog(clickhouse_u
             CONFIG.format(url=clickhouse_url).replace("    limits:", "    semantic_models: [draft.yaml]\n    limits:"),
         )
     )
+
+
+def test_a_query_asked_for_a_named_caller_runs_and_is_logged_under_the_name(clickhouse_url, adapter):  # noqa: F811
+    """On the real server: the caller's name beside the user's headers is taken, and the query log holds it."""
+    held = CALLER.set("bob@example.com")
+    try:
+        assert adapter.engine_reading("SELECT 1", seconds=10).refusal is None
+        assert adapter.run("SELECT 1 AS one", max_rows=5, seconds=10).rows == [(1,)]
+    finally:
+        CALLER.reset(held)
+    admin(clickhouse_url, "SYSTEM FLUSH LOGS")
+    logged = admin(
+        clickhouse_url,
+        "SELECT count() FROM system.query_log WHERE quota_key = 'bob@example.com' AND type = 'QueryFinish'",
+    )
+    assert int(logged) >= 2

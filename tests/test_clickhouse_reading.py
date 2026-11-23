@@ -95,16 +95,21 @@ def test_a_readonly_one_user_is_sent_no_limit(answering):
     assert set(params) <= set(FIXED_PARAMS) and params["default_format"] == "TSV"
 
 
-@pytest.mark.parametrize("own", [{}, {"readonly": "1", "max_execution_time": "30"}])
-def test_the_caller_a_gateway_named_is_the_querys_quota_key(answering, own):
-    """ClickHouse counts a quota keyed by client key per caller, and writes the key in its query log — for a user
-    within its profile's limits too: the key is a request parameter, not a setting."""
-    adapter = answering(RESOLVED_SELECT_ONE, own=own)
-    adapter.check()
-    assert "quota_key" not in adapter._params("SELECT 1", seconds=5, settings=None)
+def test_the_caller_a_gateway_named_is_sent_as_the_quota_header_never_as_a_parameter(answering, monkeypatch):
+    """Beside the user's own headers: a server before 24.3 refuses a request that names its user in headers and its
+    quota key in a parameter (Code 516). The default user is named when the connection names none."""
+    monkeypatch.setenv("SWM_TEST_USER", "reader")
+    named = ClickHouseAdapter(
+        ClickHouseSettings(url="http://clickhouse.example.com:8123", database="m", user_env="SWM_TEST_USER"),
+        pathlib.Path(),
+    )
+    unnamed = answering(RESOLVED_SELECT_ONE)
+    assert "X-ClickHouse-Quota" not in named._headers() and unnamed._headers() == {}
     held = CALLER.set("ann@example.com")
     try:
-        assert adapter._params("SELECT 1", seconds=5, settings=None)["quota_key"] == "ann@example.com"
+        assert named._headers() == {"X-ClickHouse-User": "reader", "X-ClickHouse-Quota": "ann@example.com"}
+        assert unnamed._headers() == {"X-ClickHouse-User": "default", "X-ClickHouse-Quota": "ann@example.com"}
+        assert "quota_key" not in named._params("SELECT 1", seconds=5, settings=None)
     finally:
         CALLER.reset(held)
 
