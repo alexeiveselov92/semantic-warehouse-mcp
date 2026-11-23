@@ -4,6 +4,7 @@ One line per change, newest on top: `YYYY-MM-DD — what was done`.
 
 ---
 
+2026-11-23 — 0.11.0 released (PyPI, GHCR — the image index `sha256:d3a699f5…`) and checked where it is deployed behind a gateway: `about` answers 0.11.0; each tool call is a JSON line in the pod's collected log with the caller the gateway named, the tool, its arguments and how it ended
 2026-11-23 — **0.11.0**: a log of calls — what agents ask the server for, in order
 2026-11-23 — `--log-calls`: one JSON line to standard error for every tool call, over HTTP or stdio — the tool, its arguments, the caller a gateway named, how it ended (`answered`, or `error` with what the agent was told), the answer's size and what it says of itself (`row_count`, `truncated`), the seconds; the answer itself is never written, a call is never failed by its log; the tools are the same for a client with the log and without (their names, descriptions and parameters compared)
 2026-11-23 — 0.10.0 released (PyPI, GHCR — the image index `sha256:712efc4c…`) and checked where it is deployed behind a gateway: `about` answers 0.10.0; the gateway's header reaches the server, and ClickHouse's query log holds each caller's name as the quota key of the query and of its tree reading; a quota keyed by client key counts each caller apart, a request nobody is named for with the user
