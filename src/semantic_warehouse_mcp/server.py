@@ -17,7 +17,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
-from . import __version__, answers, context, guard, repositories, semantic, serving, skills
+from . import __version__, answers, calls, context, guard, repositories, semantic, serving, skills
 from .adapters import AdapterError, TimedOut
 from .config import Config, ConfigError, Connection, load
 from .semantic import Model
@@ -112,10 +112,20 @@ def shorten_metadata(extensions: list, limit: int) -> tuple[list, bool]:
     return made, made != extensions
 
 
-def build_server(config: Config | None = None) -> MCPServer:
-    """The server with its tools — built fresh, so tests and transports each get their own."""
+def build_server(config: Config | None = None, log_calls: calls.Writer | None = None) -> MCPServer:
+    """The server with its tools — built fresh, so tests and transports each get their own. With `log_calls`, a
+    record of every tool call is given to it (calls.py)."""
     said = instructions(config)
     server = MCPServer(name="semantic-warehouse-mcp", version=__version__, instructions=said)
+
+    def tool(**options: Any):
+        """`server.tool`, each tool's calls logged when the server is asked to."""
+
+        def register(function):
+            return server.tool(**options)(calls.logged(function, log_calls) if log_calls else function)
+
+        return register
+
     connections = config.connections if config else {}
     server_context = config.context if config else ()
     server_skills = config.skills if config else ()
@@ -133,7 +143,7 @@ def build_server(config: Config | None = None) -> MCPServer:
             raise ToolError(f"No connection named {name!r}. Connections: {names}.")
         return connections[name]
 
-    @server.tool(annotations=READ_ONLY)
+    @tool(annotations=READ_ONLY)
     def about() -> dict:
         """What this server is, its version and status. Call it to check the connection."""
         return {
@@ -146,7 +156,7 @@ def build_server(config: Config | None = None) -> MCPServer:
             "read_only": True,
         }
 
-    @server.tool(annotations=READ_ONLY, structured_output=False)
+    @tool(annotations=READ_ONLY, structured_output=False)
     def list_connections() -> str:
         """The databases this server reads. For each connection: its name, engine and description; the team's
         instructions for it, as written; which tables are readable (schema.table patterns); which large tables a query
@@ -216,7 +226,7 @@ def build_server(config: Config | None = None) -> MCPServer:
         except context.ContextError as error:
             raise ToolError(f"The context documents cannot be read: {error}") from error
 
-    @server.tool(annotations=READ_ONLY, structured_output=False)
+    @tool(annotations=READ_ONLY, structured_output=False)
     def list_context(connection: str | None = None) -> str:
         """The context documents the team wrote for agents — rules, definitions, how its data is made — with each
         document's title and length. Those for the whole server have no `connection`; give `connection` to list only
@@ -235,7 +245,7 @@ def build_server(config: Config | None = None) -> MCPServer:
                 items.append(item)
         return answers.render({}, "documents", items, answer_characters, "Give `connection` to list fewer.")
 
-    @server.tool(annotations=READ_ONLY, structured_output=False)
+    @tool(annotations=READ_ONLY, structured_output=False)
     def get_context(name: str, connection: str | None = None, offset: int = 0) -> str:
         """One context document, as the team wrote it. `name` as `list_context` shows it; `connection` for a
         connection's document (left out, the whole server's — or the only document of that name). A long document
@@ -272,7 +282,7 @@ def build_server(config: Config | None = None) -> MCPServer:
         except skills.SkillError as error:
             raise ToolError(f"The skills cannot be read: {error}") from error
 
-    @server.tool(annotations=READ_ONLY, structured_output=False)
+    @tool(annotations=READ_ONLY, structured_output=False)
     def list_skills(connection: str | None = None) -> str:
         """The skills the team wrote for agents — each how it does a kind of task (answers a kind of question, checks
         a number) — with its description, which says when to use it. Read one that fits the task with `get_skill`
@@ -291,7 +301,7 @@ def build_server(config: Config | None = None) -> MCPServer:
                 items.append(item)
         return answers.render({}, "skills", items, answer_characters, "Give `connection` to list fewer.")
 
-    @server.tool(annotations=READ_ONLY, structured_output=False)
+    @tool(annotations=READ_ONLY, structured_output=False)
     def get_skill(name: str, connection: str | None = None, file: str | None = None, offset: int = 0) -> str:
         """One skill, as the team wrote it: its SKILL.md, with the list of the other files in its folder. A file the
         SKILL.md refers to (`references/rules.md`) is read with `file` set to its name as the list shows it. `name` as
@@ -503,7 +513,7 @@ def build_server(config: Config | None = None) -> MCPServer:
             named = [*named, *semantic.fields_holding(node, words)]
         return [field["name"] for field in node.get("fields", []) if field["name"] in named]
 
-    @server.tool(annotations=READ_ONLY, structured_output=False)
+    @tool(annotations=READ_ONLY, structured_output=False)
     def list_datasets(
         connection: str | None = None,
         search: str | None = None,
@@ -537,7 +547,7 @@ def build_server(config: Config | None = None) -> MCPServer:
         notes = metadata_notes(wanted, scope)
         return listing("datasets", "dataset", items, bool(words), "describe_dataset", notes)
 
-    @server.tool(annotations=READ_ONLY, structured_output=False)
+    @tool(annotations=READ_ONLY, structured_output=False)
     def describe_dataset(
         dataset: str, connection: str | None = None, model: str | None = None, full: bool = False
     ) -> str:
@@ -625,7 +635,7 @@ def build_server(config: Config | None = None) -> MCPServer:
         ]
         return answers.render_fitting(answer, "fields", fields, answer_characters, "", smaller)
 
-    @server.tool(annotations=READ_ONLY, structured_output=False)
+    @tool(annotations=READ_ONLY, structured_output=False)
     def list_metrics(
         connection: str | None = None,
         search: str | None = None,
@@ -656,7 +666,7 @@ def build_server(config: Config | None = None) -> MCPServer:
         notes = metadata_notes(wanted, scope)
         return listing("metrics", "metric", items, bool(words), "describe_metric", notes)
 
-    @server.tool(annotations=READ_ONLY, structured_output=False)
+    @tool(annotations=READ_ONLY, structured_output=False)
     def list_metadata(connection: str | None = None) -> str:
         """The team's own metadata the semantic models hold — what `list_datasets` (and `list_metrics`, where a model
         defines metrics) filter by (`metadata`). For each vendor and key: what the vocabulary says it is, and on how
@@ -704,7 +714,7 @@ def build_server(config: Config | None = None) -> MCPServer:
         hint = "Give `connection` to list fewer."
         return answers.render({}, "metadata", items, answer_characters, hint)
 
-    @server.tool(annotations=READ_ONLY, structured_output=False)
+    @tool(annotations=READ_ONLY, structured_output=False)
     def describe_metric(
         metric: str, connection: str | None = None, model: str | None = None, dataset: str | None = None
     ) -> str:
@@ -743,7 +753,7 @@ def build_server(config: Config | None = None) -> MCPServer:
         ]
         return answers.render(answer, "datasets", items, answer_characters, "")
 
-    @server.tool(annotations=READ_ONLY, structured_output=False)
+    @tool(annotations=READ_ONLY, structured_output=False)
     def list_tables(connection: str | None = None) -> str:
         """The readable tables and views of a connection, with their comments as the database holds them. A large
         table shows `bound_by`: the column a query over it must bound from below — and `narrowed_by`, the columns it
@@ -767,7 +777,7 @@ def build_server(config: Config | None = None) -> MCPServer:
             {"connection": chosen.name}, "tables", items, answer_characters, "Name a table in describe_table."
         )
 
-    @server.tool(annotations=READ_ONLY, structured_output=False)
+    @tool(annotations=READ_ONLY, structured_output=False)
     def describe_table(table: str, connection: str | None = None) -> str:
         """A readable table's columns in order — name, type, whether it can be null, and the column's comment as the
         database holds it — with the table's own comment, and `bound_by` (and `narrowed_by`) when it is a large table.
@@ -837,7 +847,7 @@ def build_server(config: Config | None = None) -> MCPServer:
         description = None
         if config and config.instructions_in_run_query:
             description = f"{function.__doc__}\n\n{CARRIED}\n\n{said}"  # the tool's own, unchanged, then them
-        return server.tool(annotations=READ_ONLY, structured_output=False, description=description)(function)
+        return tool(annotations=READ_ONLY, structured_output=False, description=description)(function)
 
     @carrying_instructions
     def run_query(sql: str, connection: str | None = None) -> str:
@@ -934,6 +944,12 @@ def main(argv: list[str] | None = None) -> None:
         help="with --http and --token-env: the request header a gateway names the caller in (passed to engines "
         "that account queries per person)",
     )
+    parser.add_argument(
+        "--log-calls",
+        action="store_true",
+        help="write a JSON line for every tool call to standard error: the tool, its arguments, the caller, "
+        "how it ended",
+    )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     args = parser.parse_args(argv)
 
@@ -984,12 +1000,13 @@ def main(argv: list[str] | None = None) -> None:
     if config.repositories:
         signal.signal(signal.SIGTERM, stopped)
         repositories.keep_fresh(list(config.repositories.values()))
+    log_calls = calls.to_standard_error if args.log_calls else None
     if not args.http:
-        build_server(config).run("stdio")
+        build_server(config, log_calls).run("stdio")
         return
     try:
         serving.serve(
-            build_server(config),
+            build_server(config, log_calls),
             host=args.host,
             port=args.port,
             path=args.path,

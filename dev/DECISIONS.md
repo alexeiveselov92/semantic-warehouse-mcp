@@ -585,3 +585,23 @@ the whole company, and a morning's ordinary use emptied it. Half of what it coun
   server and the SDK's client, so a change in how the SDK carries a request to a tool is caught.
 
 **Not decided here.** The numbers of a quota: an installation's.
+
+## 2026-11-23 · A log of calls, on request — the same day's "no log of the server's own" taken back
+
+**Why.** The database's log holds the queries; it does not hold how an agent got to them. Which context document or
+skill it read first, which datasets it listed, what the guard refused before anything was sent — none of that reaches
+a database, and it is what the people who run a server need to improve its instructions and skills.
+
+**Decided.**
+
+- `--log-calls`, off by default: one JSON line to standard error for every tool call, written after the call. The
+  server stores nothing itself and holds no credential to write anywhere: an installation collects standard error as
+  it collects any log, and keeps it as long as it keeps logs.
+- The answer is never written, only its size and what it states of itself (`row_count`, `truncated`, `connection`):
+  a database's rows do not belong in a log. Arguments are — a query's text is the point — cut past 20,000 characters.
+- The caller's name is in the record: this is now the one place the server writes it, and only when asked.
+- Every tool is registered through one function (`tool` in `build_server`), so no tool can be left out of the log;
+  the wrapper keeps the function's name, description and parameters, and a test compares the tools a client is
+  offered with the log and without.
+- No session id: the server is stateless and is given none. A person's calls close in time are read as one piece of
+  work by whoever analyses the log.
