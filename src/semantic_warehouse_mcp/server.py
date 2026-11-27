@@ -7,8 +7,10 @@ import copy
 import datetime
 import difflib
 import os
+import pathlib
 import signal
 import sys
+import tempfile
 import time
 from collections import Counter
 from typing import Any
@@ -17,8 +19,8 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
-from . import __version__, answers, calls, context, guard, repositories, semantic, serving, skills
-from .adapters import AdapterError, TimedOut
+from . import __version__, answers, calls, context, exports, guard, repositories, semantic, serving, skills
+from .adapters import CALLER, AdapterError, TimedOut
 from .config import Config, ConfigError, Connection, load
 from .semantic import Model
 
@@ -849,6 +851,21 @@ def build_server(config: Config | None = None, log_calls: calls.Writer | None = 
             description = f"{function.__doc__}\n\n{CARRIED}\n\n{said}"  # the tool's own, unchanged, then them
         return tool(annotations=READ_ONLY, structured_output=False, description=description)(function)
 
+    def check_query(chosen: Connection, sql: str) -> guard.Checked:
+        """The guard's check and the engine's own reading of a query — the same for every tool that runs one."""
+        try:
+            checked = guard.check(sql, connection_rules[chosen.name])
+            reading = chosen.adapter.engine_reading(checked.sql, seconds=chosen.limits.seconds, named=checked.tables)
+            if reading.refusal:
+                raise guard.Refused("engine_parse", reading.refusal)
+            if reading.tables is not None:
+                guard.check_engine_tables(reading.tables, checked, connection_rules[chosen.name])
+        except AdapterError as error:
+            raise ToolError(f"The database ({chosen.name}) could not read the query: {error}") from error
+        except guard.Refused as refusal:
+            raise ToolError(f"Refused by the guard ({refusal.code}): {refusal.message}.") from refusal
+        return checked
+
     @carrying_instructions
     def run_query(sql: str, connection: str | None = None) -> str:
         """Run one read-only SELECT (WITH, UNION, joins, subqueries allowed) in the connection's SQL dialect.
@@ -862,18 +879,7 @@ def build_server(config: Config | None = None, log_calls: calls.Writer | None = 
         read — `truncated` is then true and `note` says so: aggregate, filter or add LIMIT. Numbers are exact; a
         decimal JSON cannot hold exactly comes as a string. `connection` may be left out when there is only one."""
         chosen = pick(connection)
-        try:
-            checked = guard.check(sql, connection_rules[chosen.name])
-            reading = chosen.adapter.engine_reading(checked.sql, seconds=chosen.limits.seconds, named=checked.tables)
-            if reading.refusal:
-                raise guard.Refused("engine_parse", reading.refusal)
-            if reading.tables is not None:
-                guard.check_engine_tables(reading.tables, checked, connection_rules[chosen.name])
-        except AdapterError as error:
-            raise ToolError(f"The database ({chosen.name}) could not read the query: {error}") from error
-        except guard.Refused as refusal:
-            raise ToolError(f"Refused by the guard ({refusal.code}): {refusal.message}.") from refusal
-
+        checked = check_query(chosen, sql)
         limits = chosen.limits
         started_at = datetime.datetime.now(datetime.UTC)
         start = time.monotonic()
@@ -903,9 +909,80 @@ def build_server(config: Config | None = None, log_calls: calls.Writer | None = 
             answer["note"] = (
                 f"The query returned more than {limits.rows} rows, the limit of {chosen.name}; only the first "
                 f"{limits.rows} were read. Aggregate, filter, or add LIMIT."
+                + (
+                    " If the person needs the rows themselves, `export_query` writes them to a file."
+                    if config.exports
+                    else ""
+                )
             )
         rows = [[answers.value(item) for item in row] for row in result.rows]
         return answers.render(answer, "rows", rows, answer_characters, "Select fewer columns, aggregate, or add LIMIT.")
+
+    def export_query(sql: str, connection: str | None = None) -> str:
+        """Run one read-only SELECT like `run_query`, and write ALL its rows to a CSV file; answers a download link, the
+        file's size and row count, and the first few rows to check it by — never the rows. Use it when a person needs
+        the rows themselves (a table to open in a spreadsheet, data for a calculation of their own): the rows of a
+        `run_query` answer all pass through your context, a file does not. Give the person the link as it is; it works
+        for a limited time (`expires_at`). The same checks as `run_query` apply. A query returning more rows than the
+        export limit is refused, never cut: aggregate, filter or narrow it."""
+        chosen = pick(connection)
+        checked = check_query(chosen, sql)
+        settings = config.exports
+        started_at = datetime.datetime.now(datetime.UTC)
+        start = time.monotonic()
+        try:
+            result = chosen.adapter.run(checked.sql, max_rows=settings.limits.rows, seconds=chosen.limits.seconds)
+        except TimedOut as error:
+            raise ToolError(
+                f"Stopped after {chosen.limits.seconds:g} s, the time limit of {chosen.name}. Narrow the query: fewer "
+                "days, fewer columns, an aggregate."
+            ) from error
+        except AdapterError as error:
+            elapsed = time.monotonic() - start
+            raise ToolError(f"The database ({chosen.name}) returned an error after {elapsed:.3f} s: {error}") from error
+        if result.more_rows:
+            raise ToolError(
+                f"The query returned more than {settings.limits.rows} rows, the export limit: the file is not made "
+                "(a partial file would pass for the whole). Aggregate, filter or narrow the query."
+            )
+        names = [column.name for column in result.columns]
+        stamp = started_at.strftime("%Y%m%d-%H%M")
+        file_name = f"{exports.UNSAFE.sub('_', chosen.name)}-{stamp}.csv"
+        key = exports.key_of(getattr(config.exports.storage, "prefix", ""), CALLER.get(), started_at)
+        try:
+            with tempfile.TemporaryDirectory(prefix="swm-export-") as folder:
+                path = pathlib.Path(folder) / "export.csv"
+                size = exports.write_csv(path, names, result.rows, settings.limits.megabytes * 2**20)
+                config.export_storage.put(path, key)
+            link = config.export_storage.link(key, file_name, settings.link_minutes * 60)
+        except exports.ExportError as error:
+            raise ToolError(str(error)) from error
+        elapsed = time.monotonic() - start
+        answer: dict = {
+            "connection": chosen.name,
+            "sql": checked.sql,
+            "started_at": started_at.isoformat(timespec="seconds"),
+            "seconds": round(elapsed, 3),
+            "columns": [{"name": column.name, "type": column.type} for column in result.columns],
+            "row_count": len(result.rows),
+            "file": {"name": file_name, "format": "csv, UTF-8 with a header", "bytes": size},
+            "url": link,
+            "expires_at": (started_at + datetime.timedelta(minutes=settings.link_minutes)).isoformat(
+                timespec="seconds"
+            ),
+            "preview": exports.preview(result.rows),
+            "note": (
+                "The rows are in the file, not here: give the person the link. A text cell that a spreadsheet would "
+                "read as a formula starts with a quote."
+            ),
+        }
+        return answers.dumps(answer)
+
+    if config and config.exports:
+        server.tool(
+            annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False),
+            structured_output=False,
+        )(calls.logged(export_query, log_calls) if log_calls else export_query)
 
     if not defines_metrics(config):  # a tool that could only answer "there are none" costs an agent a turn
         server.remove_tool("list_metrics")

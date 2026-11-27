@@ -209,6 +209,38 @@ dates and times are ISO 8601 strings; binary values are `base64:`-prefixed strin
 A query past the connection's `seconds` is stopped and answers an error saying so; a database error is passed on in
 the engine's own words.
 
+## `export_query`
+
+Runs one read-only `SELECT` exactly as `run_query` does — the same [guard](guard.md), the same connection limits on
+time — and writes **all** its rows to a CSV file instead of answering them. Offered only where the configuration has
+[`exports`](configuration.md#exports). Takes `sql` and `connection`.
+
+The rows of a `run_query` answer all pass through the agent's context, so they are capped; a file does not pass
+through it. Use `export_query` when a person needs the rows themselves — a table to open in a spreadsheet, data for a
+calculation of their own — and `run_query` when the agent reads the answer.
+
+The answer:
+
+| Field | What |
+|---|---|
+| `connection`, `sql`, `started_at`, `seconds`, `columns` | as in `run_query` |
+| `row_count` | how many rows the file holds |
+| `file` | its `name`, `format` and `bytes` |
+| `url` | a signed link that downloads the file; give it to the person as it is |
+| `expires_at` | when the link stops working (UTC) |
+| `preview` | the first five rows, each text cut to 200 characters — to check the file by, never the data |
+
+The file is UTF-8 with a header row and a byte-order mark (a spreadsheet reads non-Latin text right only with one).
+`NULL` is an empty cell; a list or a mapping is written as JSON; a text a spreadsheet would run as a formula (it starts
+with `=`, `+`, `-` or `@` and is not a number) is written with a leading quote.
+
+A query that returns more rows than the export limit, or would make a file past its size limit, is **refused, never
+cut**: a partial file would pass for the whole. The answer says to aggregate, filter or narrow it. Nothing is written
+for a refused query.
+
+The tool writes a file to the configured storage, so it is the one tool that does not carry `read_only_hint`; it
+changes no database and deletes nothing (`destructive_hint` is false).
+
 ## `list_context`
 
 The context documents the team wrote for agents ([configuration](configuration.md#instructions-and-context)). Takes

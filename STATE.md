@@ -2,7 +2,16 @@
 
 > Rewritten entirely at the end of every session by `/close`. Don't append. Under 100 lines.
 
-**Updated:** 27 October 2026.
+**Updated:** 27 November 2026.
+
+**0.12.0 (committed, not yet released — no tag): `export_query`.** A person who needs the rows themselves (ten thousand of them
+for a calculation of their own) cannot have them through an agent: every row of a `run_query` answer enters its context,
+so the answer is capped (rows, 40,000 characters). `export_query` runs the same guarded query, writes ALL rows to a
+CSV file in S3-compatible storage (or a folder) and answers a signed link, the size and a five-row preview — never the
+rows. Offered only with `exports:` in the configuration; refused, never cut, over its row/size limit; text cells that a
+spreadsheet would run as formulas are quoted. 871 tests pass; two mutations (the quoting, the refusal) fail their tests.
+What an installation must provide: a private bucket with a put-only credential, egress to it, a lifecycle rule. The
+tag `v0.12.0` (PyPI + GHCR) is the author's to push.
 
 **Released: 0.6.0 – 0.9.0** (PyPI, GHCR, the site). **0.8.1** (2026-10-26): a `GET` of the MCP endpoint answered `405`
 at once — an installation's MCP gateway waited on the empty stream the SDK held open, and hung the whole route for

@@ -11,6 +11,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from . import exports as export_files
 from . import files, guard, repositories, semantic, skills, vocabulary
 from .adapters import ENGINES, Adapter, AdapterError, adapter_class
 from .context import ContextError, documents
@@ -93,6 +94,7 @@ class ConfigFile(_Strict):
     skills: list[str | InRepository] = []
     vocabularies: list[str] = []
     repositories: list[RepositoryEntry] = []
+    exports: export_files.ExportsEntry | None = None
 
 
 @dataclass(frozen=True)
@@ -129,6 +131,9 @@ class Config:
     repositories: dict[str, Repository] = field(default_factory=dict)
     # By vendor name, one for the whole server: a vendor's keys mean the same in every model that uses them.
     vocabularies: dict[str, Vocabulary] = field(default_factory=dict)
+    # Where `export_query` writes its files, with the limits it holds; None: the tool is not offered.
+    exports: export_files.ExportsEntry | None = None
+    export_storage: export_files.Storage | None = None
 
 
 def load(path: str | pathlib.Path, reach: bool = True) -> Config:
@@ -250,6 +255,12 @@ def parse(data: Any, *, source: str, base_dir: pathlib.Path, reach: bool = True)
     scopes += [("", "context", server_context), ("", "skills", server_skills)]
     if not repository_problems:  # fetched whatever else is wrong, so every problem is named at once
         problems += _fetch(repository_list, scopes, reach, every_entry_read=not place_problems)
+    export_storage = None
+    if parsed.exports is not None and not problems:
+        try:
+            export_storage = export_files.storage_of(parsed.exports, base_dir)
+        except export_files.ExportError as error:
+            problems.append(f"exports → storage: {error}")
     if problems:
         raise ConfigError(source, problems)
     return Config(
@@ -262,6 +273,8 @@ def parse(data: Any, *, source: str, base_dir: pathlib.Path, reach: bool = True)
         skills=server_skills,
         repositories=by_name,
         vocabularies=vocabularies,
+        exports=parsed.exports,
+        export_storage=export_storage,
     )
 
 

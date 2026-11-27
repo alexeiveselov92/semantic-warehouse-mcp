@@ -288,6 +288,47 @@ connection (every dataset's source readable there and existing), and its own met
 problem stops the server, naming it. [Semantic models and vocabularies](semantic-models.md) has every check and the
 vocabulary's keys.
 
+## Exports
+
+`exports` turns on `export_query` ([tools](tools.md#export_query)): a query's rows written to a CSV file in storage you
+name, and a link to it given instead of the rows. Without the block the tool is not offered.
+
+```yaml
+exports:
+  storage:
+    type: s3                       # or: directory
+    bucket: acme-exports
+    prefix: exports/               # every file is under it: <prefix>/<day>/<caller>/<random name>.csv
+    endpoint_url: https://s3.example.com   # for storage other than AWS's
+    region: eu-central-1
+    access_key_env: EXPORTS_ACCESS_KEY     # the variables holding the keys; never the keys
+    secret_key_env: EXPORTS_SECRET_KEY
+  limits: { rows: 100000, megabytes: 100 }
+  link_minutes: 60
+```
+
+| Key | What |
+|---|---|
+| `exports` | the block; its `storage` is required |
+| `storage` | where files go; `type` chooses the kind |
+| `type` | `s3` (any storage that speaks the S3 API; the driver comes with `pip install 'semantic-warehouse-mcp[exports]'`) or `directory` (a folder on the machine, for one person's use and tests) |
+| `bucket` | with `s3`: the bucket |
+| `prefix` | with `s3`: what every file's key starts with (`exports/`) |
+| `endpoint_url` | with `s3`: the storage's address, when it is not AWS |
+| `region` | with `s3`: the region |
+| `access_key_env`, `secret_key_env` | with `s3`: the variables holding the keys. Both left out: the SDK's own sources (a role, its usual environment variables) |
+| `path` | with `directory`: the folder, relative to the configuration file |
+| `url_prefix` | with `directory`: what a file's link starts with, if the folder is served; otherwise the link is the file's path |
+| `limits` | the most one export may hold |
+| `rows` | rows per export, up to 500 000 (100 000). More is refused, never cut |
+| `megabytes` | the file's size, up to 1024 (100). More is refused |
+| `link_minutes` | how long the link works, 1 to 1440 (60) |
+
+What the storage must give the server: **write only** — the server puts files and signs links, it never lists, reads
+or deletes. Expiry of the files themselves is the storage's job: set a lifecycle rule on the prefix (a day is
+enough), because a link stops working at `link_minutes` but the file stays until the storage removes it. A link is
+the file's only protection — anyone holding it can download — so keep `link_minutes` short and the bucket private.
+
 ## Planned
 
 Read from later milestones, each documented here when it works: `query_sets` (saved, parameterised SQL);

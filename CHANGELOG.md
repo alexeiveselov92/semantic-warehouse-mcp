@@ -4,6 +4,7 @@ One line per change, newest on top: `YYYY-MM-DD — what was done`.
 
 ---
 
+2026-11-27 — **0.12.0**: `export_query` — all the rows of a query to a CSV file in S3-compatible storage (or a folder), a signed link and a five-row preview answered instead of the rows; the tool is offered only where `exports:` is configured; the same guard and time limit as `run_query`; over the row or size limit the export is refused, never cut; a text a spreadsheet would run as a formula is quoted; `run_query`'s cut note points to it; the S3 driver is the `exports` extra, moto is a dev dependency
 2026-11-23 — 0.11.1 released (PyPI, GHCR — the image index `sha256:b85ac7ef…`) and checked where it is deployed: a query through the gateway answers on the ClickHouse 22.11 connection again, and on 26.3 the query log still holds the caller as the quota key
 2026-11-23 — **0.11.1**: a caller's name no longer breaks a ClickHouse before 24.3
 2026-11-23 — ClickHouse: the caller's name goes as the `X-ClickHouse-Quota` header, beside the user's headers — as a `quota_key` parameter (0.10.0, 0.11.0) a server before 24.3 refused every query asked for a named caller (Code 516: it does not take the user from headers and the quota key from a parameter), found in an installation's log of calls an hour after 0.10.0; the default user is named when the connection names none; a query for a named caller now runs against 22.11 and 25.8 in the tests, and the query log is read for the name

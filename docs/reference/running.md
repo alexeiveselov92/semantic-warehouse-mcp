@@ -135,6 +135,26 @@ how long it takes. Collect the lines the way you collect any process's log.
 - **A call is never failed by its log**: a line that cannot be written is dropped.
 - **No sessions.** The server is stateless and knows no session; a person's calls close in time are one piece of work.
 
+## Exports
+
+Where the configuration has [`exports`](configuration.md#exports), the `export_query` tool writes a query's rows to a
+file and gives the person a link, so a table of ten thousand rows never passes through an agent. What running it
+needs:
+
+1. **Storage the server may write to** — an S3-compatible bucket, private, with a credential that can only put
+   objects under the configured prefix (no list, read or delete). Install the driver: `pip install
+   'semantic-warehouse-mcp[exports]'` (the image has it).
+2. **Egress** from the server to the storage's address (a network policy that allows only the databases will refuse it).
+3. **The storage's own expiry**: a lifecycle rule that removes objects under the prefix after a day. The link stops
+   working at `link_minutes`; the file stays until the storage removes it.
+4. **The person must reach the storage** from where they work: the link is the storage's own address, signed, not the
+   server's. Behind a gateway that exposes only the MCP route this is the point of using storage — nothing else has to
+   be exposed.
+
+The log of calls ([above](#a-log-of-calls)) records an export like any call — its query, its caller, its row count —
+and never its link. A file holds the rows of the database: the people who may read the bucket see what the people who
+may export see.
+
 ## The image
 
 The server's container image holds the package and its locked dependencies and `git`, runs as user `10001` without
