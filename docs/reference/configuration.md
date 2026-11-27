@@ -324,8 +324,9 @@ exports:
 | `megabytes` | the file's size, up to 1024 (100). More is refused |
 | `link_minutes` | how long the link works, 1 to 1440 (60) |
 
-What the storage must give the server: **write only** — the server puts files and signs links, it never lists, reads
-or deletes. Expiry of the files themselves is the storage's job: set a lifecycle rule on the prefix (a day is
+What the storage must give the server: **put and get on the prefix, nothing else** — the server puts files and signs
+links, and a signed link works with the rights of the key that signed it, so that key needs `GetObject` on the same
+prefix. It never lists or deletes: leave out `ListBucket` and `DeleteObject`, and give the key no other prefix. Expiry of the files themselves is the storage's job: set a lifecycle rule on the prefix (a day is
 enough), because a link stops working at `link_minutes` but the file stays until the storage removes it. A link is
 the file's only protection — anyone holding it can download — so keep `link_minutes` short and the bucket private.
 

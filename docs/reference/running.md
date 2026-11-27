@@ -141,8 +141,9 @@ Where the configuration has [`exports`](configuration.md#exports), the `export_q
 file and gives the person a link, so a table of ten thousand rows never passes through an agent. What running it
 needs:
 
-1. **Storage the server may write to** — an S3-compatible bucket, private, with a credential that can only put
-   objects under the configured prefix (no list, read or delete). Install the driver: `pip install
+1. **Storage the server may write to** — an S3-compatible bucket, private, with a credential that can put and get
+   objects under the configured prefix only (a signed link carries the rights of the key that signed it); no list or
+   delete. Install the driver: `pip install
    'semantic-warehouse-mcp[exports]'` (the image has it).
 2. **Egress** from the server to the storage's address (a network policy that allows only the databases will refuse it).
 3. **The storage's own expiry**: a lifecycle rule that removes objects under the prefix after a day. The link stops
