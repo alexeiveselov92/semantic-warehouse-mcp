@@ -16,6 +16,8 @@ import re
 import shutil
 import uuid
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
+from dataclasses import dataclass
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -174,15 +176,35 @@ def cell(item: Any) -> str:
     return text
 
 
-def write_csv(path: pathlib.Path, names: list[str], rows: list[tuple[Any, ...]], max_bytes: int) -> int:
+@dataclass(frozen=True)
+class Written:
+    bytes: int
+    rows: int
+    first: list[tuple[Any, ...]]  # the first few rows, for the answer's preview
+
+
+def write_csv(
+    path: pathlib.Path, names: list[str], rows: Iterable[tuple[Any, ...]], max_rows: int, max_bytes: int
+) -> Written:
     """The rows as a UTF-8 CSV file with a header (a byte-order mark first: a spreadsheet reads non-Latin text right
-    only with one). Refuses past `max_bytes`; returns the size."""
+    only with one), written as they come — never held together. Refuses past `max_rows` rows or `max_bytes`: a partial
+    file would pass for the whole."""
+    first: list[tuple[Any, ...]] = []
+    count = 0
     with path.open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.writer(handle)
         writer.writerow([cell(name) for name in names])
-        for number, row in enumerate(rows, 1):
+        for row in rows:
+            count += 1
+            if count > max_rows:
+                raise ExportError(
+                    f"The query returned more than {max_rows} rows, the export limit: the file is not made (a partial "
+                    "file would pass for the whole). Aggregate, filter or narrow the query."
+                )
+            if len(first) < PREVIEW_ROWS:
+                first.append(row)
             writer.writerow([cell(item) for item in row])
-            if number % 1000 == 0:
+            if count % 1000 == 0:
                 handle.flush()
                 if path.stat().st_size > max_bytes:
                     break
@@ -190,7 +212,7 @@ def write_csv(path: pathlib.Path, names: list[str], rows: list[tuple[Any, ...]],
         raise ExportError(
             f"the file would pass {max_bytes // 2**20} MB, the limit: select fewer columns or narrow the query"
         )
-    return path.stat().st_size
+    return Written(bytes=path.stat().st_size, rows=count, first=first)
 
 
 def preview(rows: list[tuple[Any, ...]]) -> list[list[Any]]:

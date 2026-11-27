@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import contextlib
 import decimal
+import itertools
 import json
 import os
 import pathlib
 import re
 import time
 import uuid
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Annotated, Any
 
@@ -368,48 +371,82 @@ class ClickHouseAdapter(Adapter):
             lines, more = body.splitlines()[: max_rows + 3], False
         if len(lines) < 2:
             raise AdapterError("ClickHouse answered without column names and types")
-        names, types = json.loads(lines[0]), json.loads(lines[1])
-        rows = [
-            tuple(_typed(v, t) for v, t in zip(json.loads(line, parse_float=decimal.Decimal), types, strict=True))
-            for line in lines[2:]
-        ]
-        columns = [Column(name=name, type=type_) for name, type_ in zip(names, types, strict=True)]
+        columns, types = _header(lines[0], lines[1])
+        rows = [_row(line, types) for line in lines[2:]]
         return Result(columns=columns, rows=rows[:max_rows], more_rows=more or len(rows) > max_rows)
+
+    @contextlib.contextmanager
+    def stream(
+        self, sql: str, max_rows: int, seconds: float
+    ) -> Iterator[tuple[list[Column], Iterator[tuple[Any, ...]]]]:
+        """The rows as they come off the wire, never held together: what an export writes to its file. With a user
+        that takes limits, the server stops making rows past the one more than asked for; with `readonly = 1` the
+        query is stopped once that row is read."""
+        settings: dict[str, Any] = {"output_format_json_quote_decimals": 0}
+        if not self.fixed_limits:
+            settings |= {
+                "max_result_rows": max_rows + 1,
+                "result_overflow_mode": "break",
+                "max_result_bytes": 0,
+                "output_format_json_quote_64bit_integers": 0,
+            }
+        with self._lines(sql, seconds, settings) as lines:
+            first = list(itertools.islice(lines, 2))
+            if len(first) < 2:
+                raise AdapterError("ClickHouse answered without column names and types")
+            columns, types = _header(*first)
+            yield columns, (_row(line, types) for line in itertools.islice(lines, max_rows + 1))
 
     def _stream(self, sql: str, max_rows: int, seconds: float) -> tuple[list[str], bool]:
         """The answer's first lines as they come — its names, types and one row more than shown — then the query
         stopped, as it is past `seconds`: the server's own bounds, where the user's profile allows it none."""
-        params = self._params(sql, seconds, {"default_format": FORMAT, "output_format_json_quote_decimals": 0})
+        with self._lines(sql, seconds, {"output_format_json_quote_decimals": 0}) as streamed:
+            lines = list(itertools.islice(streamed, max_rows + 3))
+        return lines, len(lines) > max_rows + 2
+
+    @contextlib.contextmanager
+    def _lines(self, sql: str, seconds: float, settings: dict[str, Any]) -> Iterator[Iterator[str]]:
+        """The answer's lines as they come (its names, its types, then a line per row), within `seconds` from the
+        start. The query is stopped when the block ends before the lines do: the rest is never read, so it need not
+        go on."""
+        params = self._params(sql, seconds, {"default_format": FORMAT, **settings})
         params["wait_end_of_query"] = 0  # rows as they come, so the rest is never read
         deadline = time.monotonic() + seconds
-        lines: list[str] = []
-        more = False
+        read_all = stopped = False
+
+        def lines(streamed: Iterator[str]) -> Iterator[str]:
+            nonlocal read_all
+            header: list[str] = []
+            for line in streamed:
+                if time.monotonic() > deadline:
+                    raise httpx.ReadTimeout("past its time")
+                if not line.strip():
+                    continue
+                if _not_a_row(line, header):  # an error, met after rows were already sent
+                    rest = "\n".join([line, *(text for _, text in zip(range(20), streamed, strict=False))])
+                    raise self._error("", rest, seconds)
+                if len(header) < 2:
+                    header.append(line)
+                yield line
+            read_all = True
+
         try:
             with httpx.stream("GET", self.url, params=params, headers=self._headers(), timeout=seconds) as response:
                 if response.status_code != 200:
                     raise self._error(response.headers.get("X-ClickHouse-Exception-Code", ""), response.read().decode(
                         errors="replace"), seconds)  # fmt: skip
-                streamed = response.iter_lines()
-                for line in streamed:
-                    if time.monotonic() > deadline:
-                        raise httpx.ReadTimeout("past its time")
-                    if not line.strip():
-                        continue
-                    if _not_a_row(line, lines):  # an error, met after rows were already sent
-                        rest = "\n".join([line, *(text for _, text in zip(range(20), streamed, strict=False))])
-                        raise self._error("", rest, seconds)
-                    lines.append(line)
-                    if len(lines) > max_rows + 2:
-                        more = True
-                        break
+                try:
+                    yield lines(response.iter_lines())
+                finally:
+                    if not read_all:
+                        stopped = True
+                        self._stop(params["query_id"])
         except httpx.TimeoutException as error:
-            self._stop(params["query_id"])
+            if not stopped:
+                self._stop(params["query_id"])
             raise TimedOut(f"stopped after {seconds:g} s") from error
         except httpx.HTTPError as error:
             raise AdapterError(f"cannot reach {self.url}: {type(error).__name__}") from error
-        if more:
-            self._stop(params["query_id"])  # the rest is never read: the query need not go on
-        return lines, more
 
     def _rows(self, query: str, **params: str) -> list[list]:
         settings = {"default_format": "JSONCompactEachRow", **{f"param_{k}": v for k, v in params.items()}}
@@ -656,3 +693,14 @@ def _typed(value: Any, type_: str) -> Any:
     if isinstance(value, list) and inner.startswith("Array(") and inner.endswith(")"):
         return [_typed(item, inner[len("Array(") : -1]) for item in value]
     return value
+
+
+def _header(names: str, types: str) -> tuple[list[Column], list[str]]:
+    """The answer's first two lines: its columns, and the types its rows are read by."""
+    named, typed = json.loads(names), json.loads(types)
+    return [Column(name=name, type=type_) for name, type_ in zip(named, typed, strict=True)], typed
+
+
+def _row(line: str, types: list[str]) -> tuple[Any, ...]:
+    """A line of the answer as a row, each value as its type says."""
+    return tuple(_typed(v, t) for v, t in zip(json.loads(line, parse_float=decimal.Decimal), types, strict=True))
