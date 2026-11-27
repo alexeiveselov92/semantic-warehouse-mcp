@@ -930,8 +930,23 @@ def build_server(config: Config | None = None, log_calls: calls.Writer | None = 
         settings = config.exports
         started_at = datetime.datetime.now(datetime.UTC)
         start = time.monotonic()
+        stamp = started_at.strftime("%Y%m%d-%H%M")
+        file_name = f"{exports.UNSAFE.sub('_', chosen.name)}-{stamp}.csv"
+        key = exports.key_of(getattr(config.exports.storage, "prefix", ""), CALLER.get(), started_at)
         try:
-            result = chosen.adapter.run(checked.sql, max_rows=settings.limits.rows, seconds=chosen.limits.seconds)
+            with tempfile.TemporaryDirectory(prefix="swm-export-") as folder:
+                path = pathlib.Path(folder) / "export.csv"
+                # The rows go from the database to the file as they come: an export holds a few of them at a time,
+                # never all — the server's memory does not grow with the export's size.
+                with chosen.adapter.stream(
+                    checked.sql, max_rows=settings.limits.rows, seconds=chosen.limits.seconds
+                ) as (columns, rows):
+                    written = exports.write_csv(
+                        path, [column.name for column in columns], rows, settings.limits.rows,
+                        settings.limits.megabytes * 2**20,
+                    )  # fmt: skip
+                config.export_storage.put(path, key)
+            link = config.export_storage.link(key, file_name, settings.link_minutes * 60)
         except TimedOut as error:
             raise ToolError(
                 f"Stopped after {chosen.limits.seconds:g} s, the time limit of {chosen.name}. Narrow the query: fewer "
@@ -940,21 +955,6 @@ def build_server(config: Config | None = None, log_calls: calls.Writer | None = 
         except AdapterError as error:
             elapsed = time.monotonic() - start
             raise ToolError(f"The database ({chosen.name}) returned an error after {elapsed:.3f} s: {error}") from error
-        if result.more_rows:
-            raise ToolError(
-                f"The query returned more than {settings.limits.rows} rows, the export limit: the file is not made "
-                "(a partial file would pass for the whole). Aggregate, filter or narrow the query."
-            )
-        names = [column.name for column in result.columns]
-        stamp = started_at.strftime("%Y%m%d-%H%M")
-        file_name = f"{exports.UNSAFE.sub('_', chosen.name)}-{stamp}.csv"
-        key = exports.key_of(getattr(config.exports.storage, "prefix", ""), CALLER.get(), started_at)
-        try:
-            with tempfile.TemporaryDirectory(prefix="swm-export-") as folder:
-                path = pathlib.Path(folder) / "export.csv"
-                size = exports.write_csv(path, names, result.rows, settings.limits.megabytes * 2**20)
-                config.export_storage.put(path, key)
-            link = config.export_storage.link(key, file_name, settings.link_minutes * 60)
         except exports.ExportError as error:
             raise ToolError(str(error)) from error
         elapsed = time.monotonic() - start
@@ -963,14 +963,14 @@ def build_server(config: Config | None = None, log_calls: calls.Writer | None = 
             "sql": checked.sql,
             "started_at": started_at.isoformat(timespec="seconds"),
             "seconds": round(elapsed, 3),
-            "columns": [{"name": column.name, "type": column.type} for column in result.columns],
-            "row_count": len(result.rows),
-            "file": {"name": file_name, "format": "csv, UTF-8 with a header", "bytes": size},
+            "columns": [{"name": column.name, "type": column.type} for column in columns],
+            "row_count": written.rows,
+            "file": {"name": file_name, "format": "csv, UTF-8 with a header", "bytes": written.bytes},
             "url": link,
             "expires_at": (started_at + datetime.timedelta(minutes=settings.link_minutes)).isoformat(
                 timespec="seconds"
             ),
-            "preview": exports.preview(result.rows),
+            "preview": exports.preview(written.first),
             "note": (
                 "The rows are in the file, not here: give the person the link. A text cell that a spreadsheet would "
                 "read as a formula starts with a quote."

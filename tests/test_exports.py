@@ -123,7 +123,24 @@ def test_the_size_limit_refuses_and_says_how_to_narrow(tmp_path):
     path = tmp_path / "x.csv"
     rows = [("x" * 1000,)] * 5000
     with pytest.raises(exports.ExportError, match="1 MB"):
-        exports.write_csv(path, ["t"], rows, 2**20)
+        exports.write_csv(path, ["t"], rows, 100_000, 2**20)
+
+
+def test_rows_are_written_as_they_come_and_reading_stops_past_the_limit(tmp_path):
+    pulled = []
+
+    def rows():  # as an adapter's stream gives them: one by one, more than the limit if the query has more
+        for number in range(1_000_000):
+            pulled.append(number)
+            yield (number, f"row {number}")
+
+    with pytest.raises(exports.ExportError, match="more than 10 rows"):
+        exports.write_csv(tmp_path / "x.csv", ["n", "t"], rows(), 10, 2**20)
+    assert len(pulled) == 11  # the one past the limit is the last read: the rest is never asked for
+    written = exports.write_csv(tmp_path / "y.csv", ["n", "t"], iter([(1, "a"), (2, None)]), 2, 2**20)
+    assert written.rows == 2 and written.first == [(1, "a"), (2, None)]
+    assert (tmp_path / "y.csv").read_text(encoding="utf-8-sig").splitlines() == ["n,t", "1,a", "2,"]
+    assert written.bytes == (tmp_path / "y.csv").stat().st_size
 
 
 def test_a_configuration_with_an_unknown_storage_is_refused(shop_path):

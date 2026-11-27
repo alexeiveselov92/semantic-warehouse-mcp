@@ -7,9 +7,11 @@ checked query within the connection's limits.
 
 from __future__ import annotations
 
+import contextlib
 import importlib
 import pathlib
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, ClassVar
@@ -135,6 +137,17 @@ class Adapter(ABC):
     @abstractmethod
     def run(self, sql: str, max_rows: int, seconds: float) -> Result:
         """Run a checked query: read at most `max_rows` rows, and stop it after `seconds` (raising TimedOut)."""
+
+    @contextlib.contextmanager
+    def stream(
+        self, sql: str, max_rows: int, seconds: float
+    ) -> Iterator[tuple[list[Column], Iterator[tuple[Any, ...]]]]:
+        """Run a checked query and give its rows one by one, for a caller that writes them on rather than keeps them:
+        the columns, then at most `max_rows` + 1 rows — one more than asked for says there were more. Where the engine's
+        adapter streams, rows are read as they come and the query is stopped when the block ends before they do; an
+        adapter that does not reads them all first, as `run` does."""
+        result = self.run(sql, max_rows + 1, seconds)
+        yield result.columns, iter(result.rows)
 
     @abstractmethod
     def tables(self) -> list[Table]:

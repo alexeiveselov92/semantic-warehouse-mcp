@@ -4,6 +4,7 @@ refuses or says it cut, the engine names the tables it reads — and the tools a
 import decimal
 import json
 import time
+import tracemalloc
 
 import pytest
 from clickhouse_server import admin, clickhouse_url  # noqa: F401 — the fixture
@@ -66,6 +67,52 @@ def test_a_user_who_may_write_cannot_through_the_server(adapter, clickhouse_url,
     with pytest.raises(AdapterError, match="readonly"):
         adapter.run(sql, max_rows=10, seconds=10)
     assert admin(clickhouse_url, "SELECT count() FROM swm_marts.orders").strip() == "6"
+
+
+@pytest.mark.parametrize("user", ["swm_writer", "swm_readonly_one"])  # the server takes limits / bounds itself
+def test_rows_stream_one_more_than_asked_and_the_rest_is_stopped(adapter, as_user, clickhouse_url, user):  # noqa: F811
+    as_user(user)
+    adapter.check()
+    with adapter.stream("SELECT number FROM numbers(100000000000)", max_rows=3, seconds=10) as (columns, rows):
+        assert [c.name for c in columns] == ["number"]
+        assert list(rows) == [(0,), (1,), (2,), (3,)]  # the fourth says there were more
+    time.sleep(1)
+    running = f"SELECT count() FROM system.processes WHERE user = '{user}' AND query LIKE '%numbers(100000000000)%'"
+    assert admin(clickhouse_url, running).strip() == "0"  # stopped, not left making rows nobody reads
+    with adapter.stream("SELECT sum(amount), count() FROM swm_marts.orders", max_rows=3, seconds=10) as (_, rows):
+        assert list(rows) == [(decimal.Decimal("160.89"), 6)]  # values exact, as `run` gives them
+
+
+def test_streamed_rows_are_never_held_together(adapter, as_user):
+    """200 000 rows read through `stream` take a few blocks' memory; `run` keeps them all."""
+    as_user("swm_readonly_one")
+    adapter.check()
+    sql = "SELECT number, toString(number) AS text FROM numbers(200000)"
+    tracemalloc.start()
+    try:
+        with adapter.stream(sql, max_rows=500_000, seconds=30) as (_, rows):
+            count = sum(1 for _ in rows)
+        streamed = tracemalloc.get_traced_memory()[1]
+        tracemalloc.reset_peak()
+        held = len(adapter.run(sql, max_rows=500_000, seconds=30).rows)
+        whole = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert count == held == 200_000
+    assert streamed < 4 * 2**20 and whole > 5 * streamed
+
+
+def test_an_error_while_rows_stream_is_an_error_not_a_short_answer(adapter, as_user):
+    as_user("swm_readonly_one")
+    adapter.check()
+    sql = "SELECT number, throwIf(number = 200000, 'boom') FROM numbers(300000)"
+    with pytest.raises(AdapterError, match="boom"):
+        with adapter.stream(sql, max_rows=500_000, seconds=10) as (_, rows):
+            for _ in rows:
+                pass
+    with pytest.raises(TimedOut):
+        with adapter.stream("SELECT count() FROM numbers(1000000000000)", max_rows=1, seconds=1) as (_, rows):
+            list(rows)
 
 
 def test_a_profile_that_cuts_silently_cannot_cut_through_the_server(adapter, as_user):

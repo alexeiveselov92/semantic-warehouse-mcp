@@ -151,6 +151,13 @@ needs:
 4. **The person must reach the storage** from where they work: the link is the storage's own address, signed, not the
    server's. Behind a gateway that exposes only the MCP route this is the point of using storage — nothing else has to
    be exposed.
+5. **Room for one file in the temporary directory** (`TMPDIR`, else `/tmp`): the file is written there, then stored
+   and removed — up to the size limit (`limits.megabytes`) per export running at once. A `/tmp` mounted with a smaller
+   size refuses the write, or gets the container evicted.
+
+Memory does not grow with an export's size: on ClickHouse the rows go from the database to the file as they come, a
+few at a time, never held together. Other engines read an export's rows whole first, as `run_query` does, so there an
+export takes memory in proportion to its rows.
 
 The log of calls ([above](#a-log-of-calls)) records an export like any call — its query, its caller, its row count —
 and never its link. A file holds the rows of the database: the people who may read the bucket see what the people who
