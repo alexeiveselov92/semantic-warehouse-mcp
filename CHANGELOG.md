@@ -4,6 +4,7 @@ One line per change, newest on top: `YYYY-MM-DD — what was done`.
 
 ---
 
+2026-11-27 — **0.12.1**: `export_query` streams on ClickHouse — an export's memory no longer grows with its rows (#4)
 2026-11-27 — `export_query` streams on ClickHouse: rows go from the database to the file as they come, never held together — 100,000 rows of 36 columns took 2 MiB more instead of ~280 MiB (an adapter's `stream`; other engines read the rows whole first, as before); the running guide names the temporary file's room
 2026-11-27 — **0.12.0**: `export_query` — all the rows of a query to a CSV file in S3-compatible storage (or a folder), a signed link and a five-row preview answered instead of the rows; the tool is offered only where `exports:` is configured; the same guard and time limit as `run_query`; over the row or size limit the export is refused, never cut; a text a spreadsheet would run as a formula is quoted; `run_query`'s cut note points to it; the S3 driver is the `exports` extra, moto is a dev dependency
 2026-11-23 — 0.11.1 released (PyPI, GHCR — the image index `sha256:b85ac7ef…`) and checked where it is deployed: a query through the gateway answers on the ClickHouse 22.11 connection again, and on 26.3 the query log still holds the caller as the quota key
